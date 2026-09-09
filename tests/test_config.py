@@ -333,8 +333,13 @@ name = "special"
     def test_cli_preserves_workflow_flags(self):
         args = parser().parse_args(["-C", str(self.project), "-f", "x.toml", "debug", "checkout", "--help", "-C", "literal"])
         self.assertEqual(args.workflow, "debug")
+        self.assertEqual(args.directory, str(self.project))
         self.assertEqual(args.workflow_args, ["checkout", "--help", "-C", "literal"])
         self.assertTrue(parser().parse_args(["--sync", "debug", "checkout"]).sync)
+
+    def test_cli_directory_is_a_single_value(self):
+        self.assertIsNone(parser().parse_args([]).directory)
+        self.assertEqual(parser().parse_args(["-C", "first", "-C", "second"]).directory, "second")
 
     def test_file_and_global_are_mutually_exclusive(self):
         with patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):

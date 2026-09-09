@@ -26,7 +26,8 @@ layouter -C <directory> [workflow [workflow-args...]]
 ```
 
 `-C` is applied before configuration discovery, path expansion, default `cwd`,
-and session hashing. Repeated `-C` options are resolved successively, like Git.
+and session hashing. It selects a single project directory, with relative paths
+resolved from the current directory.
 Options precede the workflow because all later positional values are workflow
 arguments. The default workflow name is `default`.
 

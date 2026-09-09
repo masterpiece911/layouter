@@ -139,8 +139,8 @@ layouter --check debug checkout
 
 ## Finding workflows
 
-Unless `-C` is present, the project is the current directory. `-C` behaves like
-Git's option: it changes the project context before Layouter resolves the
+Unless `-C` is present, the project is the current directory. `-C DIR`
+selects the project directory before Layouter resolves the
 workflow, relative paths, working directories, and session identity.
 
 For `layouter debug`, Layouter first looks for `.dev/debug.toml` in the selected
@@ -437,7 +437,7 @@ workflow belongs to it, including tokens beginning with `-`.
 
 | Option | Meaning |
 | --- | --- |
-| `-C DIR` | Change project context; repeat successively like Git |
+| `-C DIR` | Select the project directory |
 | `-f FILE`, `--file FILE` | Use exactly this TOML file |
 | `--global` | Force the global workflow file |
 | `--list` | List discoverable workflows and argument signatures |

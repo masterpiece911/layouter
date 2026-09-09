@@ -19,7 +19,7 @@ def parser() -> argparse.ArgumentParser:
         usage="%(prog)s [options] [workflow [workflow-args...]]",
         description="Create missing development-workspace elements; preserve everything already running.",
         epilog="Options go before the workflow. Everything after it is a workflow argument.")
-    p.add_argument("-C", dest="directories", action="append", default=[], metavar="DIR", help="select project directory (repeatable, like git -C)")
+    p.add_argument("-C", dest="directory", metavar="DIR", help="select project directory")
     source = p.add_mutually_exclusive_group()
     source.add_argument("-f", "--file", help="use exactly this TOML file, relative to the selected project")
     source.add_argument("--global", dest="global_only", action="store_true",
@@ -43,8 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     try:
         project = Path.cwd()
-        for selected in args.directories:
-            path = Path(selected).expanduser()
+        if args.directory is not None:
+            path = Path(args.directory).expanduser()
             project = (path if path.is_absolute() else project / path).resolve()
             if not project.is_dir():
                 raise ConfigError(f"Project directory does not exist: {project}")
