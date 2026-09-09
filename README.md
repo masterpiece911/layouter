@@ -466,6 +466,16 @@ interrupted.
 
 ## Development
 
+For a release, run `make release` on Linux with Python 3.11 or newer. This
+runs the tests and validates the example before building `dist/layouter` and
+`dist/layouter-<version>-source.zip`. The version comes from `pyproject.toml`;
+keep it aligned with `src/layouter/__init__.py` when preparing a new version.
+The target builds local artifacts; publishing and tagging are separate steps.
+
+Use `make build` to build artifacts alone, or `make test` and `make check` to
+run individual checks. Select an interpreter with `make release PYTHON=python3.12`.
+Run `make help` for the available targets.
+
 Run the test suite, validate the complete example, and build the distributable
 artifacts with:
 
