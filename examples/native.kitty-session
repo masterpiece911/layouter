@@ -1,0 +1,5 @@
+# Passed directly to kitty. Keep to one OS window for managed compositor placement.
+new_tab Shells
+layout tall
+launch
+launch

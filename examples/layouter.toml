@@ -1,0 +1,18 @@
+session = "default"
+focus = "zed"
+
+[[workspace]]
+number = 2
+name = "code"
+layout = "splith"
+
+  [[workspace.window]]
+  name = "zed"
+  command = ["zed", "-n", "."]
+
+  [[workspace.kitty]]
+  name = "terminal"
+  layout = "tall"
+
+    [[workspace.kitty.pane]]
+    title = "shell"

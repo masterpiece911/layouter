@@ -1,0 +1,24 @@
+session = "layouter-sway-smoke"
+focus = "terminal.dev.one"
+
+[[workspace]]
+number = 98
+name = "Layouter Sway smoke"
+layout = "splith"
+
+  [[workspace.container]]
+  name = "outer"
+  layout = "splitv"
+
+    [[workspace.container.kitty]]
+    name = "terminal"
+    class = "layouter-sway-smoke"
+    layout = "splits"
+
+      [[workspace.container.kitty.pane]]
+      title = "one"
+
+      [[workspace.container.kitty.pane]]
+      title = "two"
+      after = "one"
+      location = "hsplit"

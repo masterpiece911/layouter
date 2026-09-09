@@ -1,0 +1,9 @@
+session = "kitty-session"
+
+[[workspace]]
+number = 5
+name = "native kitty"
+
+  [[workspace.kitty]]
+  name = "native-terminal"
+  session = "native.kitty-session"

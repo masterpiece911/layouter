@@ -1,0 +1,23 @@
+session = "layouter-smoke"
+focus = "terminal.dev.one"
+
+[[workspace]]
+number = 99
+name = "Layouter smoke"
+layout = "splith"
+
+  [[workspace.container]]
+  name = "outer"
+  layout = "splitv"
+
+    [[workspace.container.kitty]]
+    name = "terminal"
+    layout = "splits"
+
+      [[workspace.container.kitty.pane]]
+      title = "one"
+
+      [[workspace.container.kitty.pane]]
+      title = "two"
+      after = "one"
+      location = "hsplit"

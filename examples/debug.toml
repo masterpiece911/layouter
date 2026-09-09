@@ -1,0 +1,58 @@
+session = "debug-{microfrontend}"
+focus = "code"
+
+[args]
+microfrontend = { position = 0, required = true }
+
+[[workspace]]
+number = 2
+name = "code"
+
+  [[workspace.window]]
+  name = "zed"
+  command = ["zed", "-n", "."]
+
+[[workspace]]
+number = 3
+name = "dev"
+layout = "splith"
+
+  [[workspace.kitty]]
+  name = "frontend"
+  class = "dev-frontend"
+  layout = "tall"
+  size = 65
+
+    [[workspace.kitty.pane]]
+    title = "vite"
+    command = ["npm", "run", "dev", "--", "--mf", "{microfrontend}"]
+
+    [[workspace.kitty.pane]]
+    title = "tests"
+    command = ["npm", "run", "test", "--", "--watch"]
+
+    [[workspace.kitty.pane]]
+    title = "types"
+    command = ["npm", "run", "typecheck", "--", "--watch"]
+
+  [[workspace.kitty]]
+  name = "backend"
+  class = "dev-backend"
+  layout = "fat"
+  size = 35
+
+    [[workspace.kitty.pane]]
+    title = "server"
+    command = ["npm", "run", "backend"]
+
+    [[workspace.kitty.pane]]
+    title = "logs"
+    command = ["npm", "run", "logs"]
+
+[[workspace]]
+number = 4
+name = "browser"
+
+  [[workspace.window]]
+  name = "browser"
+  command = ["firefox", "--new-window", "http://{microfrontend}.localhost:5173"]

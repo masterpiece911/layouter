@@ -1,0 +1,15 @@
+# Install as ~/.config/layouter/default.toml for a generic default workflow.
+session = "default"
+focus = "terminal.dev.shell"
+
+[[workspace]]
+number = 1
+name = "{project_name}"
+layout = "splith"
+
+  [[workspace.kitty]]
+  name = "terminal"
+  layout = "tall"
+
+    [[workspace.kitty.pane]]
+    title = "shell"
