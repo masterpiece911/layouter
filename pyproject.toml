@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "layouter"
+version = "0.1.0"
+description = "Desired-state development workspaces for i3/Sway and kitty"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+layouter = "layouter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
