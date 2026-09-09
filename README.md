@@ -482,3 +482,7 @@ runtime files, and reconciliation orchestration. For the deeper contract and
 test status, see [the design](docs/design.md),
 [validation record](docs/validation.md), and
 [live desktop smoke check](docs/smoke-test.md).
+
+## License
+
+Layouter is available under the [MIT License](LICENSE).
