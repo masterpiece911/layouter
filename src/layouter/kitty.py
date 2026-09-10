@@ -1,3 +1,7 @@
+"""Discover and reconcile managed kitty windows through private control sockets.
+
+Pane user variables carry identity across title changes and manual tab moves."""
+
 from __future__ import annotations
 
 import base64
@@ -19,6 +23,7 @@ from .runtime import Runtime
 
 @dataclass(frozen=True)
 class LivePane:
+    """A live kitty pane together with its containing tab and OS window."""
     os_window: dict
     tab: dict
     window: dict
@@ -26,15 +31,18 @@ class LivePane:
 
 @dataclass(frozen=True)
 class Snapshot:
+    """Validated remote state, including whether an absent instance left a stale socket."""
     exists: bool
     os_windows: tuple[dict, ...] = ()
     stale_socket: bool = False
 
     def panes(self) -> list[LivePane]:
+        """Flatten live OS windows and tabs into pane records retaining their parents."""
         return [LivePane(osw, tab, pane) for osw in self.os_windows
                 for tab in osw["tabs"] for pane in tab["windows"]]
 
     def pane(self, key: str) -> LivePane | None:
+        """Find a pane by stable user variable, rejecting duplicate identities."""
         found = [p for p in self.panes() if p.window.get("user_vars", {}).get("layouter_pane") == key]
         if len(found) > 1:
             raise AmbiguousState(f"Duplicate live kitty pane identity {key}; refusing to guess")
@@ -42,6 +50,7 @@ class Snapshot:
 
     def tab(self, workflow: Workflow, node: Node, tab: Tab) -> dict | None:
         # Prefer the first surviving declared pane, even after manual detachment.
+        """Choose a surviving live tab using declared pane identities, then tab metadata."""
         for pane in tab.panes:
             live = self.pane(workflow.pane_key(node.id, tab.id, pane.id))
             if live:
@@ -52,6 +61,7 @@ class Snapshot:
 
 
 class Kitty:
+    """Control one declared kitty instance through its deterministic runtime socket."""
     def __init__(self, workflow: Workflow, node: Node, runtime: Runtime):
         self.workflow, self.node, self.runtime = workflow, node, runtime
         self.path = runtime.socket(workflow.element_id(node.id))
@@ -65,6 +75,7 @@ class Kitty:
         return "layouter-" + self.workflow.element_id(self.node.id)
 
     def i3_windows(self, tree: dict, *, marked_only: bool = False) -> list[dict]:
+        """Find compositor windows by mark, optionally allowing launch identity matchers."""
         mark = self.workflow.mark(self.node.id)
         exact_class = "^" + re.escape(self.wm_class) + "$"
         exact_instance = "^" + re.escape(self.wm_instance) + "$"
@@ -73,6 +84,7 @@ class Kitty:
                 matches(n, {"app_id": exact_class})))]
 
     def remote(self, *args: str) -> str:
+        """Run a socket-targeted remote command and surface failure or an unknown timeout result."""
         argv = [self.node.executable, "@", "--to", "unix:" + str(self.path),
                 "--use-password", "never", *args]
         try:
@@ -89,6 +101,7 @@ class Kitty:
     def inspect(self, tree: dict) -> Snapshot:
         # A configured Wayland app ID need not be globally unique. When the
         # socket is absent, only our stable compositor mark proves ownership.
+        """Distinguish confirmed absence from broken control access, then validate live identities."""
         windows = self.i3_windows(tree, marked_only=True)
         try:
             st = self.path.lstat()
@@ -105,6 +118,8 @@ class Kitty:
                 probe.settimeout(self.workflow.timeout)
                 probe.connect(str(self.path))
         except (ConnectionRefusedError, FileNotFoundError) as exc:
+            # A dead socket alone can be leftover state. A marked live window means
+            # control is broken, so launching a replacement could duplicate it.
             if windows:
                 raise BackendError(f"{self.node.id} exists but its kitty socket is unreachable; no replacement launched") from exc
             return Snapshot(False, stale_socket=True)
@@ -134,12 +149,14 @@ class Kitty:
         return result
 
     def variables(self, tab: Tab, pane: Pane) -> dict[str, str]:
+        """Build kitty user variables used to rediscover this pane and its declared parents."""
         w, n = self.workflow, self.node
         return {"layouter_session": w.session_id, "layouter_node": w.element_id(n.id),
                 "layouter_tab": w.tab_key(n.id, tab.id),
                 "layouter_pane": w.pane_key(n.id, tab.id, pane.id)}
 
     def pane_env(self, tab: Tab, pane: Pane) -> dict[str, str]:
+        """Add Layouter identity variables to the resolved pane environment."""
         return {**pane.env,
                 "LAYOUTER_SESSION": self.workflow.session_id,
                 "LAYOUTER_ELEMENT": pane.id,
@@ -148,6 +165,7 @@ class Kitty:
 
     @staticmethod
     def pane_command(pane: Pane) -> tuple[str, ...]:
+        """Use the declared argv or fall back to the configured shell."""
         return pane.command or (pane.env.get("SHELL", os.environ.get("SHELL") or "/bin/sh"),)
 
     def startup_file(self, tab: Tab, pane: Pane):
@@ -186,6 +204,7 @@ class Kitty:
         return tuple(dict.fromkeys(layouts))
 
     def start(self, i3, snapshot: Snapshot) -> Snapshot:
+        """Launch and discover a missing kitty instance, bootstrapping its first pane or raw session."""
         n, w = self.node, self.workflow
         if snapshot.exists:
             raise BackendError("Refusing to recreate an existing kitty instance")
@@ -228,6 +247,7 @@ class Kitty:
         return result
 
     def create_pane(self, tab: Tab, pane: Pane, snapshot: Snapshot):
+        """Create a missing pane, making a tab only when no declared tab survives."""
         w, n = self.workflow, self.node
         if snapshot.pane(w.pane_key(n.id, tab.id, pane.id)):
             return
@@ -252,6 +272,8 @@ class Kitty:
             if pane.after:
                 neighbor = snapshot.pane(w.pane_key(n.id, tab.id, pane.after))
                 if neighbor and neighbor.tab["id"] == live_tab["id"]:
+                    # A manually detached neighbor must not pull creation into a
+                    # different tab during ordinary reconciliation.
                     args += ["--next-to", f"id:{neighbor.window['id']}"]
         for key, value in self.pane_env(tab, pane).items():
             args += ["--env", key + "=" + value]
@@ -277,6 +299,7 @@ class Kitty:
         return self.inspect({"id": 0, "nodes": []})
 
     def _tab_shape(self, tab: Tab, snapshot: Snapshot) -> tuple[bool, dict | None]:
+        """Compare managed pane membership and order, returning the first declared pane’s tab."""
         desired = [self.workflow.pane_key(self.node.id, tab.id, pane.id) for pane in tab.panes]
         panes = [snapshot.pane(key) for key in desired]
         if any(pane is None for pane in panes):
@@ -290,6 +313,7 @@ class Kitty:
         return all(pane.tab["id"] == target["id"] for pane in panes) and actual == desired, target
 
     def sync_plan(self, snapshot: Snapshot) -> list[tuple[str, str]]:
+        """Report inline tab membership, order, title, and layout differences without mutation."""
         if self.node.session_file:
             return []
         result = []
@@ -307,6 +331,7 @@ class Kitty:
         return result
 
     def sync(self, i3, snapshot: Snapshot) -> list[tuple[str, str]]:
+        """Reassemble declared panes and restore tab presentation without restarting processes."""
         changes = self.sync_plan(snapshot)
         if self.node.session_file:
             return changes
@@ -321,6 +346,8 @@ class Kitty:
                 first = state.pane(w.pane_key(n.id, tab.id, tab.panes[0].id))
                 if first is None:
                     raise BackendError(f"Cannot synchronize missing kitty pane {n.id}.{tab.id}.{tab.panes[0].id}")
+                # Move declared panes into a fresh tab in order. Unmanaged panes
+                # remain in their original tabs, and no process is relaunched.
                 self.remote("detach-window", "--match", f"id:{first.window['id']}",
                             "--target-tab", "new", "--stay-in-tab")
                 state = self.inspect(i3.tree())
@@ -349,6 +376,7 @@ class Kitty:
         return changes
 
     def focus(self, target: str, i3, snapshot: Snapshot):
+        """Focus a declared OS window, tab, or pane using its current live identity."""
         parts = target.split(".")
         if len(parts) == 1:
             node = marked(i3.tree(), self.workflow.mark(self.node.id))
