@@ -1,3 +1,8 @@
+"""Orchestrate gap filling and optional synchronization across desktop backends.
+
+Planning reads live state; execution inspects it again before creating elements
+to account for changes made while the invocation is running."""
+
 from __future__ import annotations
 
 import os
@@ -14,12 +19,14 @@ from .runtime import Runtime
 
 @dataclass(frozen=True)
 class Action:
+    """A reportable planning or execution result for a declared element."""
     kind: str
     target: str
     detail: str = ""
 
 
 def check_executable(command: tuple[str, ...] | list[str], cwd: Path, env: dict):
+    """Check a launch directory and executable using the intended process environment."""
     if not cwd.is_dir():
         raise BackendError(f"Working directory does not exist: {cwd}")
     executable = command[0]
@@ -35,6 +42,7 @@ def check_executable(command: tuple[str, ...] | list[str], cwd: Path, env: dict)
 
 
 class Reconciler:
+    """Coordinate backend operations while preserving existing processes and unmanaged elements."""
     def __init__(self, workflow: Workflow, i3, runtime: Runtime,
                  kitty_factory=Kitty, emit=None):
         self.workflow, self.i3, self.runtime = workflow, i3, runtime
@@ -43,23 +51,27 @@ class Reconciler:
         self.actions: list[Action] = []
 
     def record(self, kind: str, target: str, detail: str = ""):
+        """Append an executed action and forward it to the progress callback."""
         action = Action(kind, target, detail)
         self.actions.append(action)
         self.emit(action)
 
     def existing_app(self, node: Node):
+        """Find an application by mark and reject marks attached to structural containers."""
         live = marked(self.i3.tree(), self.workflow.mark(node.id))
         if live and not is_window(live):
             raise BackendError(f"{node.id}: application identity belongs to a windowless container")
         return live
 
     def inspect(self):
+        """Inspect all managed kitty endpoints before any launch can occur."""
         tree = self.i3.tree()
         # Surface inspection failures before any application launch.
         snapshots = {key: kitty.inspect(tree) for key, kitty in self.kitties.items()}
         return snapshots
 
     def plan(self, *, sync: bool = False) -> list[Action]:
+        """Describe required creation, adoption, and optional corrections without mutating the desktop."""
         snapshots = self.inspect()
         result = []
         claimed = set()
@@ -90,6 +102,7 @@ class Reconciler:
         return result
 
     def preflight(self, plan: list[Action]):
+        """Validate commands and referenced files only for elements the plan would create."""
         missing = {a.target for a in plan if a.kind == "create"}
         for node in self.workflow.leaves:
             if node.id in missing:
@@ -104,6 +117,7 @@ class Reconciler:
                         check_executable(Kitty.pane_command(pane), pane.cwd, pane.env)
 
     def app(self, node: Node):
+        """Keep, adopt, or launch one application, placing only newly discovered windows."""
         w = self.workflow
         if self.existing_app(node):
             self.record("keep", node.id, "app")
@@ -125,6 +139,7 @@ class Reconciler:
         self.record("create", node.id, "app")
 
     def kitty(self, node: Node):
+        """Ensure a kitty OS window exists and fill gaps in its inline pane declarations."""
         w, backend = self.workflow, self.kitties[node.id]
         state = backend.inspect(self.i3.tree())
         if state.exists:
@@ -139,6 +154,7 @@ class Reconciler:
             state = backend.start(self.i3, state)
             self.record("create", node.id, "kitty OS window")
         if node.session_file:
+            # Raw session contents are opaque: only the OS window is managed.
             return
         for tab in node.tabs:
             for pane in tab.panes:
@@ -154,6 +170,7 @@ class Reconciler:
                     self.record("create", target, "pane")
 
     def focus(self):
+        """Resolve the configured focus target through the appropriate backend."""
         target = self.workflow.focus
         if not target:
             return
@@ -170,6 +187,7 @@ class Reconciler:
 
     def run(self, *, no_focus: bool = False, preflight: bool = True,
             sync: bool = False) -> list[Action]:
+        """Fill gaps, optionally synchronize, and restore original focus when required or on failure."""
         plan = self.plan(sync=sync)
         if preflight:
             self.preflight(plan)
@@ -186,6 +204,8 @@ class Reconciler:
                 for target, detail in self.i3.sync(self.workflow):
                     self.record("sync", target, detail)
             else:
+                # Ordinary reconciliation may assemble new groups, but must leave
+                # missing nesting alone if rebuilding it would move existing windows.
                 for container in self.i3.finalize(self.workflow) or []:
                     self.record("preserve", container.id,
                                 "declared nesting skipped because rebuilding it would move an existing element")
@@ -199,6 +219,7 @@ class Reconciler:
                     if self.i3.focused() != original:
                         self.i3.focus(original)
                 except BackendError:
+                    # Preserve the original failure if focus restoration also fails.
                     if succeeded:
                         raise
         return self.actions
