@@ -1,3 +1,5 @@
+"""Manage private runtime files, exclusive invocation locks, and detached processes."""
+
 from __future__ import annotations
 
 import fcntl
@@ -11,6 +13,7 @@ from .errors import BackendError
 
 
 class Runtime:
+    """Own the private directory used for sockets, logs, sessions, and locks."""
     def __init__(self, path: Path | None = None):
         if path is None:
             base = os.environ.get("XDG_RUNTIME_DIR")
@@ -18,6 +21,7 @@ class Runtime:
         self.path = path
 
     def ensure(self):
+        """Create the runtime directory or reject an existing directory with unsafe ownership or mode."""
         try:
             self.path.mkdir(mode=0o700, parents=True, exist_ok=True)
             st = self.path.lstat()
@@ -27,6 +31,7 @@ class Runtime:
             raise BackendError(f"Runtime directory must be an owned, private directory (mode 700): {self.path}")
 
     def socket(self, element_id: str) -> Path:
+        """Derive a deterministic socket path and enforce the Unix socket path-length limit."""
         path = self.path / (element_id + ".sock")
         if len(os.fsencode(path)) > 100:
             raise BackendError(f"Runtime path is too long for a Unix socket: {path}")
@@ -34,6 +39,7 @@ class Runtime:
 
     @contextmanager
     def lock(self, key: str):
+        """Hold a nonblocking advisory lock for the duration of an invocation."""
         self.ensure()
         path = self.path / (key + ".lock")
         fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
@@ -49,6 +55,7 @@ class Runtime:
 
     def spawn(self, argv: list[str] | tuple[str, ...], cwd: Path,
               env: dict[str, str], element_id: str) -> subprocess.Popen:
+        """Launch a detached process with inherited environment and a private append-only log."""
         self.ensure()
         log_path = self.path / (element_id + ".log")
         try:
