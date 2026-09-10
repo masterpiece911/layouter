@@ -60,6 +60,7 @@ def workspace_id(name: str) -> str:
 
 
 def panes(value, where: str) -> dict:
+    """Convert readable pane declarations into identity-keyed canonical tables."""
     result = {}
     for pane in entries(value, where):
         allowed(pane, {"name", "enabled", "command", "cwd", "env", "title",
@@ -75,6 +76,7 @@ def panes(value, where: str) -> dict:
 
 
 def kitty(value: dict, where: str) -> dict:
+    """Normalize inline panes, explicit tabs, or a startup-only kitty session."""
     allowed(value, {"name", "enabled", "cwd", "env", "executable", "config", "options",
                     "class", "size", "session", "layout", "title", "pane", "tab"}, where)
     result = {k: copy.deepcopy(v) for k, v in value.items()
@@ -110,6 +112,7 @@ def kitty(value: dict, where: str) -> dict:
 
 
 def normalize_workflow(value: dict, where: str = "workflow") -> dict:
+    """Flatten the readable workspace hierarchy into canonical nodes with parent references."""
     value = mapping(value, where)
     allowed(value, WORKFLOW_FIELDS, where)
     result = {k: copy.deepcopy(v) for k, v in value.items() if k != "workspace"}
@@ -156,6 +159,7 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
 
 
 def normalize_document(value: dict, root_name: str = "default") -> dict:
+    """Accept readable or canonical configuration and return the canonical document shape."""
     value = mapping(value, "configuration")
     allowed(value, {"settings", *WORKFLOW_FIELDS}, "configuration")
     result = {"workflows": {}}

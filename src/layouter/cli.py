@@ -1,3 +1,5 @@
+"""Parse CLI options and coordinate validation, planning, and desktop reconciliation."""
+
 from __future__ import annotations
 
 import argparse
@@ -15,6 +17,7 @@ from .runtime import Runtime
 
 
 def parser() -> argparse.ArgumentParser:
+    """Build the CLI parser, leaving tokens after the workflow as workflow arguments."""
     p = argparse.ArgumentParser(prog="layouter", allow_abbrev=False,
         usage="%(prog)s [options] [workflow [workflow-args...]]",
         description="Create missing development-workspace elements; preserve everything already running.",
@@ -39,6 +42,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Resolve the project and workflow, dispatch the requested mode, and return an exit code."""
     p = parser()
     args = p.parse_args(argv)
     try:

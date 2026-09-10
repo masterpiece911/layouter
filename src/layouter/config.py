@@ -1,3 +1,7 @@
+"""Discover TOML workflows, bind arguments, and validate resolved desired state.
+
+Relative paths and stable identities are resolved here, before any desktop access."""
+
 from __future__ import annotations
 
 import copy
@@ -66,6 +70,7 @@ def identifier(value, where: str) -> str:
 def load(project: Path, selected: str | None = None,
          global_file: Path | None = None, *, workflow: str = "default",
          discover: bool = False, force_global: bool = False) -> tuple[dict, tuple[Path, ...]]:
+    """Select whole workflow files using explicit, local, or global precedence."""
     if global_file is None:
         global_dir = Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")) / "layouter"
         global_file = global_dir / "default.toml"
@@ -85,6 +90,8 @@ def load(project: Path, selected: str | None = None,
             raise ConfigError(f"Configuration file does not exist: {explicit}")
         candidates = [(explicit, workflow)]
     elif discover:
+        # Replace whole files by name so listing follows the same local-over-global
+        # precedence as launching; declarations from the two files never merge.
         chosen = ({path.stem: path for path in sorted(global_dir.glob("*.toml"))}
                   if global_dir.is_dir() else {})
         if not force_global and local_dir.is_dir():
@@ -127,6 +134,7 @@ def load(project: Path, selected: str | None = None,
 
 
 def workflow_data(config: dict, name: str) -> dict:
+    """Return an independent workflow copy so resolution cannot mutate loaded configuration."""
     workflows = table(config.get("workflows"), "workflows")
     if name not in workflows:
         raise ConfigError(f"Unknown workflow {name!r}; available: {', '.join(workflows)}")
@@ -134,6 +142,7 @@ def workflow_data(config: dict, name: str) -> dict:
 
 
 def declarations(data: dict) -> list[dict]:
+    """Validate argument declarations and return them in positional binding order."""
     values = data.get("args", [])
     if isinstance(values, dict):
         positioned = []
@@ -184,6 +193,7 @@ def declarations(data: dict) -> list[dict]:
 
 
 def bind(data: dict, supplied: list[str]) -> dict[str, str]:
+    """Bind supplied workflow arguments, applying defaults and checking allowed choices."""
     args = declarations(data)
     if len(supplied) > len(args):
         raise ConfigError(f"Expected at most {len(args)} workflow arguments, got {len(supplied)}")
@@ -203,6 +213,7 @@ def bind(data: dict, supplied: list[str]) -> dict[str, str]:
 
 
 def expand(value: str, context: dict[str, str], where: str) -> str:
+    """Expand named placeholders with optional shell quoting or URL encoding."""
     parts = []
     try:
         for literal, field, spec, conversion in string.Formatter().parse(value):
@@ -210,6 +221,8 @@ def expand(value: str, context: dict[str, str], where: str) -> str:
             if field is None:
                 continue
             if not ARG.fullmatch(field) or conversion or spec not in {"", "q", "url"}:
+                # Disallow Python format attribute/index access and conversions;
+                # workflow placeholders are only named values with explicit escaping.
                 raise ConfigError(f"{where}: use plain {{name}}, {{name:q}}, or {{name:url}}")
             if field not in context:
                 raise ConfigError(f"{where}: unknown placeholder {{{field}}}")
@@ -222,6 +235,7 @@ def expand(value: str, context: dict[str, str], where: str) -> str:
 
 
 def expanded(value, context: dict[str, str], where: str):
+    """Recursively interpolate values while preserving dictionary keys and non-string types."""
     if isinstance(value, str):
         return expand(value, context, where)
     if isinstance(value, dict):
@@ -232,11 +246,13 @@ def expanded(value, context: dict[str, str], where: str):
 
 
 def cwd(value, project: Path, where: str) -> Path:
+    """Resolve a working directory relative to the canonical project, not its parent node."""
     path = Path(text(value, where)).expanduser()
     return (path if path.is_absolute() else project / path).resolve()
 
 
 def env(value, parent: dict[str, str], where: str) -> dict[str, str]:
+    """Validate and overlay environment entries on a copy of the inherited environment."""
     result = dict(parent)
     for key, val in table(value, where).items():
         if not ARG.fullmatch(key):
@@ -246,6 +262,7 @@ def env(value, parent: dict[str, str], where: str) -> dict[str, str]:
 
 
 def command(value, where: str, *, required: bool = False) -> tuple[str, ...]:
+    """Validate an argv array without interpreting shell syntax."""
     if not isinstance(value, list) or (required and not value):
         raise ConfigError(f"{where}: expected an argv array; use ['sh', '-c', script] for a shell")
     values = tuple(text(v, where, empty=True) for v in value)
@@ -255,6 +272,7 @@ def command(value, where: str, *, required: bool = False) -> tuple[str, ...]:
 
 
 def enabled_tables(data, where: str) -> dict[str, dict]:
+    """Return enabled declarations after validating their IDs and enabled flags."""
     result = {}
     for key, value in table(data, where).items():
         identifier(key, where)
@@ -265,6 +283,7 @@ def enabled_tables(data, where: str) -> dict[str, dict]:
 
 
 def ordered_panes(panes: list[Pane], where: str) -> tuple[Pane, ...]:
+    """Order panes after their dependencies, rejecting missing references and cycles."""
     by_id = {p.id: p for p in panes}
     done, visiting, result = set(), set(), []
 
@@ -272,6 +291,8 @@ def ordered_panes(panes: list[Pane], where: str) -> tuple[Pane, ...]:
         if pane.id in done:
             return
         if pane.id in visiting:
+            # A node on the active DFS path is a cycle; a completed node is merely
+            # a dependency shared by several panes and can be reused safely.
             raise ConfigError(f"{where}: cyclic pane 'after' references")
         visiting.add(pane.id)
         if pane.after:
@@ -288,6 +309,7 @@ def ordered_panes(panes: list[Pane], where: str) -> tuple[Pane, ...]:
 
 
 def tabs(data: dict, project: Path, node_cwd: Path, node_env: dict, where: str) -> tuple[Tab, ...]:
+    """Resolve tab and pane settings with inherited working directories and environments."""
     result = []
     for tid, tab in enabled_tables(data, where).items():
         tw = f"{where}.{tid}"
@@ -322,6 +344,7 @@ def tabs(data: dict, project: Path, node_cwd: Path, node_env: dict, where: str) 
 
 def resolve(config: dict, project: Path, name: str = "default",
             supplied: list[str] | None = None, sources: tuple[Path, ...] = ()) -> Workflow:
+    """Build a validated Workflow with expanded values, stable IDs, and checked tree references."""
     project = project.expanduser().resolve()
     if not project.is_dir():
         raise ConfigError(f"Project directory does not exist: {project}")
