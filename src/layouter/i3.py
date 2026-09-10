@@ -15,6 +15,7 @@ import subprocess
 import time
 from collections import deque
 from contextlib import AbstractContextManager
+from enum import IntEnum
 
 from .errors import AmbiguousState, BackendError
 from .model import Node, Workflow
@@ -23,6 +24,20 @@ HEADER = struct.Struct("=6sII")
 MAGIC = b"i3-ipc"
 EVENT = 1 << 31
 MAX_MESSAGE = 64 * 1024 * 1024
+
+
+class RequestKind(IntEnum):
+    """Request types used by Layouter, with their i3/Sway wire values.
+
+    Replies use the same type as their request. Event frames instead carry
+    the EVENT high bit and are handled separately by the subscription reader.
+    See https://i3wm.org/docs/ipc.html#_sending_messages_to_i3.
+    """
+
+    RUN_COMMAND = 0
+    SUBSCRIBE = 2
+    GET_TREE = 4
+    GET_VERSION = 7
 
 
 def walk(node: dict):
@@ -138,7 +153,7 @@ class Connection(AbstractContextManager):
     def __exit__(self, *args):
         self.sock.close()
 
-    def send(self, kind: int, payload: str = ""):
+    def send(self, kind: RequestKind, payload: str = ""):
         """Send a UTF-8 payload with its binary IPC header."""
         data = payload.encode("utf-8")
         self.sock.settimeout(self.timeout)
@@ -149,6 +164,8 @@ class Connection(AbstractContextManager):
 
     def receive(self, timeout: float | None = None) -> tuple[int, object]:
         """Read and decode one complete frame within a single shared deadline."""
+        # Keep the wire type raw here: this transport carries both replies and
+        # event frames, so not every incoming kind belongs to RequestKind.
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
 
         def exact(size: int) -> bytes:
@@ -174,7 +191,7 @@ class Connection(AbstractContextManager):
         except (OSError, ValueError, struct.error) as exc:
             raise BackendError(f"Invalid i3 response: {exc}") from exc
 
-    def request(self, kind: int, payload: str = ""):
+    def request(self, kind: RequestKind, payload: str = ""):
         """Send a request and require a response of the same IPC type."""
         self.send(kind, payload)
         try:
@@ -192,7 +209,7 @@ class Events(Connection):
         super().__init__(path, timeout)
         self.pending = deque()
         try:
-            self.send(2, json.dumps(["window"]))
+            self.send(RequestKind.SUBSCRIBE, json.dumps(["window"]))
             deadline = time.monotonic() + timeout
             while True:
                 kind, response = self.receive(max(0, deadline - time.monotonic()))
@@ -201,7 +218,7 @@ class Events(Connection):
                     # retain the event while still waiting for subscription success.
                     self.pending.append(response)
                     continue
-                if kind != 2 or not isinstance(response, dict) or not response.get("success"):
+                if kind != RequestKind.SUBSCRIBE or not isinstance(response, dict) or not response.get("success"):
                     raise BackendError("Compositor rejected the window event subscription")
                 break
         except BaseException:
@@ -234,7 +251,7 @@ class Compositor(AbstractContextManager):
                 raise BackendError("Cannot find an i3/Sway IPC socket; run Layouter inside the compositor session")
         self.path, self.timeout = path, timeout
         self.connection = Connection(path, timeout)
-        version = self.connection.request(7)
+        version = self.connection.request(RequestKind.GET_VERSION)
         if not isinstance(version, dict):
             self.connection.__exit__()
             raise BackendError("Compositor returned invalid version data")
@@ -246,14 +263,14 @@ class Compositor(AbstractContextManager):
 
     def tree(self) -> dict:
         """Fetch the current compositor hierarchy."""
-        result = self.connection.request(4)
+        result = self.connection.request(RequestKind.GET_TREE)
         if not isinstance(result, dict) or "id" not in result:
             raise BackendError("Compositor returned an invalid tree")
         return result
 
     def command(self, value: str):
         """Execute compositor commands and reject any unsuccessful result."""
-        result = self.connection.request(0, value)
+        result = self.connection.request(RequestKind.RUN_COMMAND, value)
         if not isinstance(result, list) or not result or any(not r.get("success") for r in result):
             raise BackendError(f"Compositor command failed: {value}: {result}")
 

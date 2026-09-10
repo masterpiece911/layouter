@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 from layouter.config import resolve
 from layouter.errors import AmbiguousState, BackendError
-from layouter.i3 import Connection, Compositor, EVENT, Events, HEADER, MAGIC, command_layout, marked, matches, quote, walk
+from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEADER, MAGIC, command_layout, marked, matches, quote, walk
 from layouter.kitty import Kitty, Snapshot
 from layouter.runtime import Runtime
 
@@ -119,7 +119,7 @@ class IPCAndRuntimeTests(unittest.TestCase):
             send(connection, 4, {"id": 1, "name": "çalışma"}, fragmented=True)
         with IPCServer(self.path / "i3", handler):
             with Connection(str(self.path / "i3"), 1) as client:
-                self.assertEqual(client.request(4), {"id": 1, "name": "çalışma"})
+                self.assertEqual(client.request(RequestKind.GET_TREE), {"id": 1, "name": "çalışma"})
 
     @requires_sockets
     def test_subscription_ack_can_be_interleaved_with_immediate_event(self):
@@ -142,7 +142,7 @@ class IPCAndRuntimeTests(unittest.TestCase):
             endpoint = self.path / ("bad" + str(len(content)))
             with IPCServer(endpoint, handler):
                 with Connection(str(endpoint), 1) as client, self.assertRaises(BackendError):
-                    client.request(4)
+                    client.request(RequestKind.GET_TREE)
 
     def test_initial_post_launch_snapshot_catches_window_without_waiting(self):
         backend = Compositor.__new__(Compositor)
@@ -427,11 +427,30 @@ def frame(kind, payload):
 
 
 class InMemoryTransportTests(unittest.TestCase):
+    def test_named_requests_preserve_protocol_wire_values(self):
+        for kind, wire_value in ((RequestKind.RUN_COMMAND, 0),
+                                 (RequestKind.SUBSCRIBE, 2),
+                                 (RequestKind.GET_TREE, 4),
+                                 (RequestKind.GET_VERSION, 7)):
+            with self.subTest(kind=kind):
+                stream = ByteSocket(frame(wire_value, {"success": True}))
+                with patch("layouter.i3.socket.socket", return_value=stream):
+                    with Connection("unused", 1) as client:
+                        self.assertEqual(client.request(kind, "é"), {"success": True})
+                self.assertEqual(stream.sent, HEADER.pack(MAGIC, 2, wire_value) + "é".encode())
+
+    def test_named_request_rejects_mismatched_reply(self):
+        stream = ByteSocket(frame(7, {}))
+        with patch("layouter.i3.socket.socket", return_value=stream):
+            with Connection("unused", 1) as client:
+                with self.assertRaisesRegex(BackendError, "Unexpected compositor response type"):
+                    client.request(RequestKind.GET_TREE)
+
     def test_fragmented_header_and_unicode_payload(self):
         stream = ByteSocket(frame(4, {"id": 1, "name": "çalışma"}))
         with patch("layouter.i3.socket.socket", return_value=stream):
             with Connection("unused", 1) as client:
-                self.assertEqual(client.request(4), {"id": 1, "name": "çalışma"})
+                self.assertEqual(client.request(RequestKind.GET_TREE), {"id": 1, "name": "çalışma"})
         self.assertEqual(stream.sent, HEADER.pack(MAGIC, 0, 4))
         self.assertTrue(stream.closed)
 
@@ -445,13 +464,13 @@ class InMemoryTransportTests(unittest.TestCase):
     def test_eof_is_not_empty_state(self):
         with patch("layouter.i3.socket.socket", return_value=ByteSocket(b"")):
             with Connection("unused", 1) as client, self.assertRaises(BackendError):
-                client.request(4)
+                client.request(RequestKind.GET_TREE)
 
     def test_oversized_frame_rejected_without_reading_body(self):
         stream = ByteSocket(HEADER.pack(MAGIC, 128 * 1024 * 1024, 4))
         with patch("layouter.i3.socket.socket", return_value=stream):
             with Connection("unused", 1) as client, self.assertRaisesRegex(BackendError, "Invalid i3 IPC"):
-                client.request(4)
+                client.request(RequestKind.GET_TREE)
 
 
 class TreeHarness:
