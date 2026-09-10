@@ -1,3 +1,8 @@
+"""Inspect and arrange i3/Sway desktops through their shared IPC protocol.
+
+Normal placement only mutates newly created elements. Explicit synchronization
+may move existing managed windows to reconstruct the declared tree."""
+
 from __future__ import annotations
 
 import json
@@ -21,16 +26,19 @@ MAX_MESSAGE = 64 * 1024 * 1024
 
 
 def walk(node: dict):
+    """Traverse the compositor tree, including floating children."""
     yield node
     for child in node.get("nodes", []) + node.get("floating_nodes", []):
         yield from walk(child)
 
 
 def find_id(tree: dict, con_id: int) -> dict | None:
+    """Find a live container by numeric IPC ID, returning None if it disappeared."""
     return next((node for node in walk(tree) if node.get("id") == con_id), None)
 
 
 def path_to(tree: dict, con_id: int) -> list[dict]:
+    """Return the root-to-container path, or an empty list when the ID is absent."""
     def visit(node: dict, path: list[dict]):
         current = [*path, node]
         if node.get("id") == con_id:
@@ -55,6 +63,7 @@ def parent_of(tree: dict, con_id: int) -> dict | None:
 
 
 def common_parent(tree: dict, first_id: int, second_id: int) -> dict | None:
+    """Find the deepest shared ancestor of two live containers."""
     first, second = path_to(tree, first_id), path_to(tree, second_id)
     result = None
     for left, right in zip(first, second):
@@ -65,16 +74,19 @@ def common_parent(tree: dict, first_id: int, second_id: int) -> dict | None:
 
 
 def unique(items: list[dict], description: str) -> dict | None:
+    """Accept zero or one match and reject ambiguity instead of choosing arbitrarily."""
     if len(items) > 1:
         raise AmbiguousState(f"Multiple live containers match {description}; refusing to guess")
     return items[0] if items else None
 
 
 def marked(tree: dict, mark: str) -> dict | None:
+    """Find the unique live container carrying a managed identity mark."""
     return unique([n for n in walk(tree) if mark in n.get("marks", [])], f"mark {mark}")
 
 
 def matches(node: dict, patterns: dict[str, str]) -> bool:
+    """Match real windows against portable X11 or Wayland property patterns."""
     if not is_window(node):
         return False
     props = node.get("window_properties") or {}
@@ -112,6 +124,7 @@ def command_layout(value: str) -> str:
 
 
 class Connection(AbstractContextManager):
+    """A bounded, framed Unix-socket transport for i3-compatible IPC."""
     def __init__(self, path: str, timeout: float):
         self.timeout = timeout
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -126,6 +139,7 @@ class Connection(AbstractContextManager):
         self.sock.close()
 
     def send(self, kind: int, payload: str = ""):
+        """Send a UTF-8 payload with its binary IPC header."""
         data = payload.encode("utf-8")
         self.sock.settimeout(self.timeout)
         try:
@@ -134,6 +148,7 @@ class Connection(AbstractContextManager):
             raise BackendError(f"Compositor IPC send failed: {exc}") from exc
 
     def receive(self, timeout: float | None = None) -> tuple[int, object]:
+        """Read and decode one complete frame within a single shared deadline."""
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
 
         def exact(size: int) -> bytes:
@@ -160,6 +175,7 @@ class Connection(AbstractContextManager):
             raise BackendError(f"Invalid i3 response: {exc}") from exc
 
     def request(self, kind: int, payload: str = ""):
+        """Send a request and require a response of the same IPC type."""
         self.send(kind, payload)
         try:
             response_kind, data = self.receive()
@@ -171,6 +187,7 @@ class Connection(AbstractContextManager):
 
 
 class Events(Connection):
+    """A dedicated window subscription that buffers events received before acknowledgment."""
     def __init__(self, path: str, timeout: float):
         super().__init__(path, timeout)
         self.pending = deque()
@@ -180,6 +197,8 @@ class Events(Connection):
             while True:
                 kind, response = self.receive(max(0, deadline - time.monotonic()))
                 if kind & EVENT:
+                    # A window can appear before the subscription acknowledgment;
+                    # retain the event while still waiting for subscription success.
                     self.pending.append(response)
                     continue
                 if kind != 2 or not isinstance(response, dict) or not response.get("success"):
@@ -190,6 +209,7 @@ class Events(Connection):
             raise
 
     def next(self, timeout: float):
+        """Consume an already-buffered event before waiting for another frame."""
         if self.pending:
             return self.pending.popleft()
         _, event = self.receive(timeout)
@@ -197,6 +217,7 @@ class Events(Connection):
 
 
 class Compositor(AbstractContextManager):
+    """Expose live-tree discovery and guarded placement for both i3 and Sway."""
     def __init__(self, timeout: float = 30, path: str | None = None):
         if path is None:
             path = os.environ.get("I3SOCK") or os.environ.get("SWAYSOCK")
@@ -224,12 +245,14 @@ class Compositor(AbstractContextManager):
         self.connection.__exit__(*args)
 
     def tree(self) -> dict:
+        """Fetch the current compositor hierarchy."""
         result = self.connection.request(4)
         if not isinstance(result, dict) or "id" not in result:
             raise BackendError("Compositor returned an invalid tree")
         return result
 
     def command(self, value: str):
+        """Execute compositor commands and reject any unsuccessful result."""
         result = self.connection.request(0, value)
         if not isinstance(result, list) or not result or any(not r.get("success") for r in result):
             raise BackendError(f"Compositor command failed: {value}: {result}")
@@ -242,6 +265,7 @@ class Compositor(AbstractContextManager):
 
     def mark(self, node: dict, mark: str):
         # --add preserves user marks. Never transfer an existing managed mark.
+        """Attach identity without replacing user marks or transferring another element’s identity."""
         existing = self.find(mark)
         if existing is not None:
             if existing["id"] != node["id"]:
@@ -257,11 +281,13 @@ class Compositor(AbstractContextManager):
             self.command(f"[con_id={int(con_id)}] focus")
 
     def adoptable(self, patterns: dict[str, str]) -> dict | None:
+        """Find exactly one matching unmanaged window, or report ambiguity."""
         return unique([n for n in walk(self.tree()) if matches(n, patterns) and not managed(n)],
                       "unmanaged application matcher")
 
     def wait_new(self, events: Events, baseline: set[int], patterns: dict[str, str],
                  description: str) -> dict:
+        """Wait for a matching window absent from the pre-launch baseline."""
         deadline = time.monotonic() + self.timeout
         while True:
             # Snapshot after subscription/launch catches even an immediate map event.
@@ -301,6 +327,7 @@ class Compositor(AbstractContextManager):
         return current
 
     def _ensure_workspace(self, workflow: Workflow, node: Node) -> dict:
+        """Find or create the workspace and remember whether its empty layout is safe to initialize."""
         self._sets()
         workspace = self._workspace(workflow, node)
         tree = self.tree()
@@ -326,6 +353,7 @@ class Compositor(AbstractContextManager):
         return live
 
     def _nearest_parent(self, workflow: Workflow, node: Node, tree: dict) -> tuple[Node, dict]:
+        """Find the nearest surviving marked ancestor when declared containers are absent."""
         current = workflow.by_id[node.parent]
         while True:
             live = marked(tree, workflow.mark(current.id))
@@ -338,12 +366,14 @@ class Compositor(AbstractContextManager):
             current = workflow.by_id[current.parent]
 
     def prepare_launch(self, workflow: Workflow, leaf: Node) -> dict:
+        """Ensure a destination workspace and focus the nearest surviving parent."""
         self._ensure_workspace(workflow, leaf)
         _, destination = self._nearest_parent(workflow, leaf, self.tree())
         self.command(f"[con_id={int(destination['id'])}] focus")
         return destination
 
     def _attach(self, workflow: Workflow, node: Node, con_id: int):
+        """Move an eligible element beneath its nearest surviving parent and verify placement."""
         tree = self.tree()
         parent, destination = self._nearest_parent(workflow, node, tree)
         if descendant(tree, con_id, int(destination["id"])):
@@ -356,6 +386,7 @@ class Compositor(AbstractContextManager):
             raise BackendError(f"Could not attach {node.id} to {parent.id}")
 
     def place_new(self, workflow: Workflow, leaf: Node, created: dict, baseline: set[int]):
+        """Mark and place a discovered window only if it was absent before launch."""
         if created["id"] in baseline:
             raise BackendError("Refusing to place a preexisting window")
         self._sets()
@@ -368,6 +399,7 @@ class Compositor(AbstractContextManager):
         return [node for node in workflow.nodes if node.parent == parent]
 
     def _root(self, workflow: Workflow, node: Node, tree: dict) -> tuple[dict, str] | None:
+        """Resolve a declared subtree to its live root, tolerating flattened singleton containers."""
         live = marked(tree, workflow.mark(node.id))
         if live is not None:
             return live, workflow.mark(node.id)
@@ -379,6 +411,7 @@ class Compositor(AbstractContextManager):
         return None
 
     def _materialize(self, workflow: Workflow, container: Node) -> bool:
+        """Build a missing multi-child container only from roots eligible for mutation."""
         self._sets()
         tree = self.tree()
         if marked(tree, workflow.mark(container.id)) is not None:
@@ -390,6 +423,8 @@ class Compositor(AbstractContextManager):
         resolved = [root for root in roots if root is not None]
         ids = [int(root[0]["id"]) for root in resolved]
         if len(set(ids)) != len(ids) or any(con_id not in self.mutable_ids for con_id in ids):
+            # Outside sync, mutable IDs belong only to this invocation. Reusing an
+            # older child here would silently rearrange the user's existing layout.
             return False
         first, second = resolved[0], resolved[1]
         direction = "vertical" if container.layout == "splitv" else "horizontal"
@@ -415,6 +450,7 @@ class Compositor(AbstractContextManager):
         return True
 
     def _initial_layout_and_sizes(self, workflow: Workflow, *, force: bool = False):
+        """Apply layout and ratios to new groups, or to existing managed groups when forced by sync."""
         self._sets()
         tree = self.tree()
         for parent in (node for node in workflow.nodes if node.kind in {"workspace", "container"}):
@@ -432,6 +468,8 @@ class Compositor(AbstractContextManager):
                 continue
             child_ids = [int(root[0]["id"]) for root in roots if root is not None]
             if not force and any(con_id not in self.mutable_ids for con_id in child_ids):
+                # Resizing a new child also resizes its siblings, so the entire
+                # group must be new before ordinary reconciliation applies ratios.
                 continue
             if not force or live.get("layout") != parent.layout:
                 self.command(f"[con_id={parent_id}] layout {command_layout(parent.layout)}")
@@ -446,6 +484,7 @@ class Compositor(AbstractContextManager):
                         self.command(f"[con_id={con_id}] resize set {dimension} {child.size:g} ppt")
 
     def _structural_parents(self, workflow: Workflow) -> list[Node]:
+        """Select active workspaces and containers whose multiple children require real structure."""
         workspaces = {self._workspace(workflow, leaf).id for leaf in workflow.leaves}
         return [node for node in workflow.nodes
                 if (node.kind == "workspace" and node.id in workspaces) or
@@ -456,6 +495,7 @@ class Compositor(AbstractContextManager):
         return [node for node in workflow.nodes if node.kind == "workspace" and node.id in active]
 
     def _structure_matches(self, workflow: Workflow, tree: dict) -> bool:
+        """Check managed tiling, parentage, workspace names, and relative child order."""
         for leaf in workflow.leaves:
             live = marked(tree, workflow.mark(leaf.id))
             if live is None or not is_window(live):
@@ -481,12 +521,15 @@ class Compositor(AbstractContextManager):
             desired_ids = [int(root[0]["id"]) for root in roots if root is not None]
             tiled_ids = [int(child["id"]) for child in live.get("nodes", [])]
             if [con_id for con_id in tiled_ids if con_id in desired_ids] != desired_ids:
+                # Compare only managed relative order; extra user windows may stay
+                # interleaved without making the declared structure incorrect.
                 return False
             if any((parent_of(tree, con_id) or {}).get("id") != live.get("id") for con_id in desired_ids):
                 return False
         return True
 
     def _sync_workspace(self, workflow: Workflow, workspace: Node) -> dict:
+        """Restore a workspace name or transfer its identity to the existing target workspace."""
         tree = self.tree()
         mark = workflow.mark(workspace.id)
         live = marked(tree, mark)
@@ -495,6 +538,8 @@ class Compositor(AbstractContextManager):
                         f"workspace {workspace.name}")
         if live is not None and live.get("name") != workspace.name:
             if target is not None and target.get("id") != live.get("id"):
+                # The desired workspace name is already occupied. Use that workspace
+                # for managed leaves without renaming or moving its unmanaged contents.
                 self.command(f"[con_id={int(live['id'])}] unmark {quote(mark)}")
                 self.mark(target, mark)
                 live = self.find(mark) or target
@@ -509,6 +554,7 @@ class Compositor(AbstractContextManager):
         return live
 
     def _layout_differences(self, workflow: Workflow, tree: dict) -> list[str]:
+        """Report declared layouts and split percentages that differ from live state."""
         differences = []
         for parent in self._structural_parents(workflow):
             live = marked(tree, workflow.mark(parent.id))
@@ -529,6 +575,7 @@ class Compositor(AbstractContextManager):
         return differences
 
     def sync_plan(self, workflow: Workflow) -> list[tuple[str, str]]:
+        """Report workspace, structure, and layout corrections without issuing mutations."""
         tree = self.tree()
         result = []
         for workspace in self._managed_workspaces(workflow):
@@ -543,6 +590,7 @@ class Compositor(AbstractContextManager):
         return result
 
     def sync(self, workflow: Workflow) -> list[tuple[str, str]]:
+        """Rebuild managed structure when necessary, then restore declared layouts and sizes."""
         changes = self.sync_plan(workflow)
         for workspace in self._managed_workspaces(workflow):
             self._sync_workspace(workflow, workspace)
@@ -555,6 +603,9 @@ class Compositor(AbstractContextManager):
                     raise BackendError(f"Cannot synchronize missing compositor element {leaf.id}")
                 leaves.append((leaf, int(live["id"])))
             if leaves:
+                # Staging removes managed leaves from their old nesting while leaving
+                # unmanaged windows in place. Their processes continue running as the
+                # declared structure is rebuilt from the leaves upward.
                 staging = f"__layouter_sync_{workflow.session_id}_{secrets.token_hex(4)}"
                 self.command(f"workspace --no-auto-back-and-forth {quote(staging)}")
                 for _, con_id in leaves:
@@ -589,6 +640,7 @@ class Compositor(AbstractContextManager):
         return changes
 
     def finalize(self, workflow: Workflow) -> list[Node]:
+        """Assemble newly created groups and return nesting that must remain uncorrected."""
         self._sets()
         containers = [node for node in workflow.nodes if node.kind == "container"]
         if self.mutable_ids:
