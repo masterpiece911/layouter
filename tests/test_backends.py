@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 from layouter.config import resolve
 from layouter.errors import AmbiguousState, BackendError
 from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEADER, MAGIC, command_layout, marked, matches, quote, walk
-from layouter.kitty import Kitty, Snapshot
+from layouter.kitty import Kitty, Snapshot, SocketNotReady
 from layouter.runtime import Runtime
 
 
@@ -227,6 +227,30 @@ class KittyTests(unittest.TestCase):
         with self.assertRaisesRegex(BackendError, "socket is missing"):
             self.kitty.inspect(self.tree(True))
         self.assertFalse(self.kitty.inspect(self.tree()).exists)
+
+    def test_startup_waits_for_socket_after_window_maps(self):
+        ready = Snapshot(True)
+        with patch.object(self.kitty, "inspect", side_effect=[
+                SocketNotReady("missing"), SocketNotReady("unreachable"), ready]) as inspect, \
+                patch("layouter.kitty.time.sleep") as sleep:
+            self.assertIs(self.kitty.wait_ready(Mock()), ready)
+        self.assertEqual(inspect.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_startup_socket_wait_is_bounded(self):
+        with patch.object(self.kitty, "inspect", side_effect=SocketNotReady("missing")), \
+                patch("layouter.kitty.time.monotonic", side_effect=[0, self.kitty.workflow.timeout]), \
+                patch("layouter.kitty.time.sleep") as sleep:
+            with self.assertRaisesRegex(SocketNotReady, "missing"):
+                self.kitty.wait_ready(Mock())
+        sleep.assert_not_called()
+
+    def test_startup_does_not_retry_protocol_failures(self):
+        with patch.object(self.kitty, "inspect", side_effect=BackendError("invalid reply")), \
+                patch("layouter.kitty.time.sleep") as sleep:
+            with self.assertRaisesRegex(BackendError, "invalid reply"):
+                self.kitty.wait_ready(Mock())
+        sleep.assert_not_called()
 
     @requires_sockets
     def test_dead_socket_is_absent_only_if_i3_window_also_absent(self):

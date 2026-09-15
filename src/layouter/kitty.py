@@ -11,6 +11,7 @@ import re
 import shlex
 import socket
 import stat
+import time
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -19,6 +20,10 @@ from .errors import AmbiguousState, BackendError
 from .i3 import marked, matches, walk
 from .model import Node, Pane, Tab, Workflow
 from .runtime import Runtime
+
+
+class SocketNotReady(BackendError):
+    """The kitty window exists but its control endpoint is not listening yet."""
 
 
 @dataclass(frozen=True)
@@ -107,7 +112,7 @@ class Kitty:
             st = self.path.lstat()
         except FileNotFoundError:
             if windows:
-                raise BackendError(
+                raise SocketNotReady(
                     f"{self.node.id} exists in the compositor but its kitty socket is missing: {self.path}"
                 )
             return Snapshot(False)
@@ -121,7 +126,7 @@ class Kitty:
             # A dead socket alone can be leftover state. A marked live window means
             # control is broken, so launching a replacement could duplicate it.
             if windows:
-                raise BackendError(f"{self.node.id} exists but its kitty socket is unreachable; no replacement launched") from exc
+                raise SocketNotReady(f"{self.node.id} exists but its kitty socket is unreachable; no replacement launched") from exc
             return Snapshot(False, stale_socket=True)
         except OSError as exc:
             raise BackendError(f"Cannot inspect kitty socket {self.path}: {exc}") from exc
@@ -147,6 +152,18 @@ class Kitty:
             for pane in tab.panes:
                 result.pane(self.workflow.pane_key(self.node.id, tab.id, pane.id))
         return result
+
+    def wait_ready(self, i3) -> Snapshot:
+        """Wait only for a newly launched instance's endpoint, within the startup timeout."""
+        deadline = time.monotonic() + self.workflow.timeout
+        while True:
+            try:
+                return self.inspect(i3.tree())
+            except SocketNotReady:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(0.05, remaining))
 
     def variables(self, tab: Tab, pane: Pane) -> dict[str, str]:
         """Build kitty user variables used to rediscover this pane and its declared parents."""
@@ -235,7 +252,7 @@ class Kitty:
                                            "LAYOUTER_ELEMENT": w.element_id(n.id)}, w.element_id(n.id))
             created = i3.wait_new(events, baseline, {"class": "^" + re.escape(self.wm_class) + "$"}, n.id)
             i3.place_new(w, n, created, baseline)
-        result = self.inspect(i3.tree())
+        result = self.wait_ready(i3)
         if not result.exists:
             raise BackendError(f"kitty {n.id} exited during startup")
         if first_tab:
