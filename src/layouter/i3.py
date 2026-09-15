@@ -294,8 +294,12 @@ class Compositor(AbstractContextManager):
         return next((n["id"] for n in walk(self.tree()) if n.get("focused")), None)
 
     def focus(self, con_id: int):
-        if any(n["id"] == con_id for n in walk(self.tree())):
-            self.command(f"[con_id={int(con_id)}] focus")
+        live = find_id(self.tree(), con_id)
+        if live is not None:
+            if live.get("type") == "workspace":
+                self.command(f"workspace --no-auto-back-and-forth {quote(live['name'])}")
+            else:
+                self.command(f"[con_id={int(con_id)}] focus")
 
     def adoptable(self, patterns: dict[str, str]) -> dict | None:
         """Find exactly one matching unmanaged window, or report ambiguity."""
@@ -343,50 +347,67 @@ class Compositor(AbstractContextManager):
             current = workflow.by_id[current.parent]
         return current
 
+    @staticmethod
+    def _workspace_number(name: str) -> int | None:
+        match = re.match(r"^[0-9]+", name)
+        return int(match.group()) if match else None
+
+    def resolve_node(self, workflow: Workflow, node: Node, tree: dict) -> dict | None:
+        """Resolve workspace destinations by number/name and other elements by mark."""
+        if node.kind != "workspace":
+            return marked(tree, workflow.mark(node.id))
+        number = self._workspace_number(node.name)
+        return unique([item for item in walk(tree) if item.get("type") == "workspace"
+                       and (item.get("num") == number if number is not None
+                            else item.get("name") == node.name)], f"workspace {node.name}")
+
+    def _workspace_argument(self, workspace: Node) -> str:
+        number = self._workspace_number(workspace.name)
+        return f"number {number}" if number is not None else quote(workspace.name)
+
     def _ensure_workspace(self, workflow: Workflow, node: Node) -> dict:
-        """Find or create the workspace and remember whether its empty layout is safe to initialize."""
+        """Activate the ordinary destination if absent; never mark or rename it."""
         self._sets()
         workspace = self._workspace(workflow, node)
-        tree = self.tree()
-        live = marked(tree, workflow.mark(workspace.id))
+        live = self.resolve_node(workflow, workspace, self.tree())
         if live is None:
-            live = unique([item for item in walk(tree) if item.get("type") == "workspace"
-                           and item.get("name") == workspace.name], f"workspace {workspace.name}")
+            self.command(f"workspace --no-auto-back-and-forth {self._workspace_argument(workspace)}")
+            live = self.resolve_node(workflow, workspace, self.tree())
             if live is None:
-                self.command(f"workspace --no-auto-back-and-forth {quote(workspace.name)}")
-                live = unique([item for item in walk(self.tree()) if item.get("type") == "workspace"
-                               and item.get("name") == workspace.name], f"workspace {workspace.name}")
-                if live is None:
-                    raise BackendError(f"Could not create workspace {workspace.name}")
-            if not live.get("nodes") and not live.get("floating_nodes"):
-                self.safe_workspaces.add(int(live["id"]))
-            self.mark(live, workflow.mark(workspace.id))
-            live = self.find(workflow.mark(workspace.id)) or live
-        if is_window(live):
-            raise BackendError(f"{workspace.id}: its workspace mark belongs to a real window")
+                raise BackendError(f"Could not activate workspace {workspace.name}")
         if not live.get("nodes") and not live.get("floating_nodes"):
-            # An interrupted earlier invocation may have left only the mark.
             self.safe_workspaces.add(int(live["id"]))
         return live
+
+    def _workspace_layout(self, live: dict, layout: str):
+        # Workspace IDs are not command criteria in Sway. Focus a direct tiling
+        # child, then its parent, so layout applies to the workspace itself.
+        children = live.get("nodes", [])
+        if children:
+            self.command(f"[con_id={int(children[0]['id'])}] focus; focus parent; "
+                         f"layout {command_layout(layout)}")
+        else:
+            self.command(f"workspace --no-auto-back-and-forth {quote(live['name'])}; "
+                         f"layout {command_layout(layout)}")
 
     def _nearest_parent(self, workflow: Workflow, node: Node, tree: dict) -> tuple[Node, dict]:
         """Find the nearest surviving marked ancestor when declared containers are absent."""
         current = workflow.by_id[node.parent]
         while True:
-            live = marked(tree, workflow.mark(current.id))
+            live = self.resolve_node(workflow, current, tree)
             if live is not None:
                 if current.kind == "container" and is_window(live):
                     raise BackendError(f"{current.id}: its structural mark belongs to a real window")
                 return current, live
             if current.kind == "workspace":
-                raise BackendError(f"Workspace {current.id} lost its Layouter mark")
+                raise BackendError(f"Workspace {current.id} is no longer available")
             current = workflow.by_id[current.parent]
 
     def prepare_launch(self, workflow: Workflow, leaf: Node) -> dict:
         """Ensure a destination workspace and focus the nearest surviving parent."""
         self._ensure_workspace(workflow, leaf)
         _, destination = self._nearest_parent(workflow, leaf, self.tree())
-        self.command(f"[con_id={int(destination['id'])}] focus")
+        self.focus(int(destination["id"]))
         return destination
 
     def _attach(self, workflow: Workflow, node: Node, con_id: int):
@@ -396,7 +417,7 @@ class Compositor(AbstractContextManager):
         if descendant(tree, con_id, int(destination["id"])):
             return
         if parent.kind == "workspace":
-            self.command(f"[con_id={con_id}] move container to workspace {quote(parent.name)}")
+            self.command(f"[con_id={con_id}] move container to workspace {quote(destination['name'])}")
         else:
             self.command(f"[con_id={con_id}] move container to mark {quote(workflow.mark(parent.id))}")
         if not descendant(self.tree(), con_id, int(destination["id"])):
@@ -471,7 +492,7 @@ class Compositor(AbstractContextManager):
         self._sets()
         tree = self.tree()
         for parent in (node for node in workflow.nodes if node.kind in {"workspace", "container"}):
-            live = marked(tree, workflow.mark(parent.id))
+            live = self.resolve_node(workflow, parent, tree)
             if live is None:
                 continue
             parent_id = int(live["id"])
@@ -489,7 +510,10 @@ class Compositor(AbstractContextManager):
                 # group must be new before ordinary reconciliation applies ratios.
                 continue
             if not force or live.get("layout") != parent.layout:
-                self.command(f"[con_id={parent_id}] layout {command_layout(parent.layout)}")
+                if parent.kind == "workspace":
+                    self._workspace_layout(live, parent.layout)
+                else:
+                    self.command(f"[con_id={parent_id}] layout {command_layout(parent.layout)}")
             if parent.layout not in {"splith", "splitv"} or len(children) < 2:
                 continue
             dimension = "width" if parent.layout == "splith" else "height"
@@ -518,16 +542,14 @@ class Compositor(AbstractContextManager):
             if live is None or not is_window(live):
                 return False
         for parent in self._structural_parents(workflow):
-            live = marked(tree, workflow.mark(parent.id))
+            live = self.resolve_node(workflow, parent, tree)
             if live is None or is_window(live):
-                return False
-            if parent.kind == "workspace" and live.get("name") != parent.name:
                 return False
             if parent.kind == "container":
                 desired_parent = workflow.by_id[parent.parent]
                 while desired_parent.kind == "container" and len(self._children(workflow, desired_parent.id)) == 1:
                     desired_parent = workflow.by_id[desired_parent.parent]
-                expected = marked(tree, workflow.mark(desired_parent.id))
+                expected = self.resolve_node(workflow, desired_parent, tree)
                 actual_parent = parent_of(tree, int(live["id"]))
                 if expected is None or actual_parent is None or actual_parent.get("id") != expected.get("id"):
                     return False
@@ -545,36 +567,11 @@ class Compositor(AbstractContextManager):
                 return False
         return True
 
-    def _sync_workspace(self, workflow: Workflow, workspace: Node) -> dict:
-        """Restore a workspace name or transfer its identity to the existing target workspace."""
-        tree = self.tree()
-        mark = workflow.mark(workspace.id)
-        live = marked(tree, mark)
-        target = unique([node for node in walk(tree)
-                         if node.get("type") == "workspace" and node.get("name") == workspace.name],
-                        f"workspace {workspace.name}")
-        if live is not None and live.get("name") != workspace.name:
-            if target is not None and target.get("id") != live.get("id"):
-                # The desired workspace name is already occupied. Use that workspace
-                # for managed leaves without renaming or moving its unmanaged contents.
-                self.command(f"[con_id={int(live['id'])}] unmark {quote(mark)}")
-                self.mark(target, mark)
-                live = self.find(mark) or target
-            else:
-                self.command(f"rename workspace {quote(str(live.get('name') or ''))} "
-                             f"to {quote(workspace.name)}")
-                live = self.find(mark)
-        if live is None:
-            live = self._ensure_workspace(workflow, workspace)
-        if live is None or live.get("name") != workspace.name:
-            raise BackendError(f"Could not synchronize workspace {workspace.name}")
-        return live
-
     def _layout_differences(self, workflow: Workflow, tree: dict) -> list[str]:
         """Report declared layouts and split percentages that differ from live state."""
         differences = []
         for parent in self._structural_parents(workflow):
-            live = marked(tree, workflow.mark(parent.id))
+            live = self.resolve_node(workflow, parent, tree)
             if live is None:
                 continue
             if live.get("layout") != parent.layout:
@@ -596,9 +593,9 @@ class Compositor(AbstractContextManager):
         tree = self.tree()
         result = []
         for workspace in self._managed_workspaces(workflow):
-            live = marked(tree, workflow.mark(workspace.id))
-            if live is None or live.get("name") != workspace.name:
-                result.append((workspace.id, "workspace identity/name"))
+            live = self.resolve_node(workflow, workspace, tree)
+            if live is None:
+                result.append((workspace.id, "workspace destination"))
         if not self._structure_matches(workflow, tree):
             result.append(("compositor", "managed placement, nesting, or order"))
         for difference in self._layout_differences(workflow, tree):
@@ -610,7 +607,7 @@ class Compositor(AbstractContextManager):
         """Rebuild managed structure when necessary, then restore declared layouts and sizes."""
         changes = self.sync_plan(workflow)
         for workspace in self._managed_workspaces(workflow):
-            self._sync_workspace(workflow, workspace)
+            self._ensure_workspace(workflow, workspace)
         tree = self.tree()
         if not self._structure_matches(workflow, tree):
             leaves = []
@@ -640,11 +637,11 @@ class Compositor(AbstractContextManager):
                     if not members:
                         continue
                     first_leaf, first_id = members[0]
-                    self.command(f"[con_id={first_id}] move container to workspace {quote(workspace.name)}")
                     live_workspace = self._ensure_workspace(workflow, first_leaf)
+                    self.command(f"[con_id={first_id}] move container to workspace {quote(live_workspace['name'])}")
                     self.safe_workspaces.add(int(live_workspace["id"]))
                     for _, con_id in members[1:]:
-                        self.command(f"[con_id={con_id}] move container to workspace {quote(workspace.name)}")
+                        self.command(f"[con_id={con_id}] move container to workspace {quote(live_workspace['name'])}")
                 containers = [node for node in workflow.nodes if node.kind == "container"]
                 progress = True
                 while progress:

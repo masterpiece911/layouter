@@ -391,10 +391,22 @@ See kitty's documentation for the underlying
 and [`allow_remote_control`](https://sw.kovidgoyal.net/kitty/conf/#opt-kitty.allow_remote_control)
 behavior.
 
+## Workspace destinations
+
+A numbered workspace targets the user's workspace with that number. For example,
+`name = "1"` or `number = 1` with a name uses an existing workspace such as
+`1: terminal`, preserving its name. If it is inactive, Layouter activates the
+ordinary workspace with `workspace number 1`, just like a numbered shortcut.
+Names without a leading number are matched exactly.
+
+Workspaces are destinations, not marked Layouter objects. Neither ordinary runs
+nor `--sync` rename them. Existing windows stay where they are during ordinary
+runs; `--sync` returns managed windows to their declared destinations.
+
 ## Reconciliation and synchronization
 
 Layouter does not keep a persistent registry or daemon. The source of truth is
-the live desktop: i3/Sway marks identify managed compositor elements, while the
+the live desktop: i3/Sway marks identify managed containers and windows, while the
 kitty socket and pane user variables identify the terminal hierarchy.
 
 An ordinary invocation only fills gaps. Existing applications and panes are
@@ -412,7 +424,7 @@ layouter --dry-run --sync debug checkout
 layouter --sync debug checkout
 ```
 
-For i3/Sway, synchronization restores managed workspace assignments and names,
+For i3/Sway, synchronization restores managed workspace assignments,
 tiled state, nested parentage, relative managed-child order, container layouts,
 and declared percentages. When nesting differs, Layouter moves the managed
 windows through a temporary workspace and rebuilds their tree from the bottom

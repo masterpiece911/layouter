@@ -1,5 +1,6 @@
 import base64
 import copy
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -503,13 +504,18 @@ class TreeHarness:
             match = re.match(r"\[con_id=(\d+)\]\s+(.*)", part)
             con_id, action = (int(match.group(1)), match.group(2)) if match else (self.focused, part)
             node = next((item for item in walk(self.state) if item.get("id") == con_id), None)
+            if match and node is not None and node.get("type") == "workspace":
+                raise BackendError("No matching node.")
             if action.startswith("workspace --no-auto-back-and-forth "):
-                name = shlex.split(action[len("workspace --no-auto-back-and-forth "):])[0]
+                args = shlex.split(action[len("workspace --no-auto-back-and-forth "):])
+                number = int(args[1]) if args[0] == "number" else None
+                name = str(number) if number is not None else args[0]
                 target = next((item for item in walk(self.state)
-                               if item.get("type") == "workspace" and item.get("name") == name), None)
+                               if item.get("type") == "workspace" and
+                               (item.get("num") == number if number is not None else item.get("name") == name)), None)
                 if target is None:
                     self.next_id += 1
-                    target = {"id": self.next_id, "type": "workspace", "name": name,
+                    target = {"id": self.next_id, "type": "workspace", "name": name, "num": number,
                               "layout": "splith", "marks": [], "nodes": [], "floating_nodes": []}
                     self.state["nodes"].append(target)
                 self.focused = target["id"]
@@ -517,9 +523,12 @@ class TreeHarness:
                 old, _, new = shlex.split(action[len("rename workspace "):])
                 next(item for item in walk(self.state)
                      if item.get("type") == "workspace" and item.get("name") == old)["name"] = new
+            elif action == "focus parent":
+                self.focused = self.locate_parent(con_id)[0]["id"]
             elif action == "focus":
                 self.focused = con_id
             elif action.startswith("mark --add "):
+                assert node["type"] != "workspace"
                 node.setdefault("marks", []).append(shlex.split(action[len("mark --add "):])[0])
             elif action.startswith("unmark "):
                 node.setdefault("marks", []).remove(shlex.split(action[len("unmark "):])[0])
@@ -573,7 +582,7 @@ class PlacementTests(unittest.TestCase):
     def state(self):
         w = self.workflow
         workspace = {"id": 1, "type": "workspace", "name": "declared", "layout": "splith",
-                     "marks": [w.mark("work")], "nodes": [], "floating_nodes": []}
+                     "marks": [], "nodes": [], "floating_nodes": []}
         return {"id": 0, "type": "root", "marks": [], "nodes": [workspace], "floating_nodes": []}
 
     def add_leaf(self, harness, key, con_id):
@@ -645,7 +654,7 @@ class PlacementTests(unittest.TestCase):
         }}}}, Path(self.temp.name))
         state = {"id": 0, "type": "root", "marks": [], "floating_nodes": [], "nodes": [{
             "id": 1, "type": "workspace", "name": "declared", "layout": "splith",
-            "marks": [workflow.mark("work")], "floating_nodes": [], "nodes": []}]}
+            "marks": [], "floating_nodes": [], "nodes": []}]}
         harness = TreeHarness(workflow, state)
         harness.backend.safe_workspaces.add(1)
         for key, con_id in (("terminal", 10), ("browser", 11)):
@@ -710,22 +719,62 @@ class PlacementTests(unittest.TestCase):
         self.assertTrue(any("layout splitv" in command for command in harness.commands))
         self.assertTrue(any("resize set height 60 ppt" in command for command in harness.commands))
 
-    def test_sync_restores_managed_workspace_name_without_rebuilding_tree(self):
-        harness = TreeHarness(self.workflow, self.state())
+    def numbered(self, name="1"):
+        self.workflow = replace(self.workflow, nodes=tuple(
+            replace(node, name=name) if node.kind == "workspace" else node
+            for node in self.workflow.nodes))
+        state = self.state()
+        state["nodes"][0].update(name="1: terminal", num=1)
+        return TreeHarness(self.workflow, state, sway=True)
+
+    def test_numbered_workspace_launch_preserves_existing_name_and_never_marks(self):
+        for name in ("1", "1: configured-label"):
+            harness = self.numbered(name)
+            live = harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
+            self.assertEqual(live["id"], 1)
+            self.assertEqual(harness.state["nodes"][0]["name"], "1: terminal")
+            self.assertEqual(harness.state["nodes"][0]["marks"], [])
+            self.assertEqual(harness.commands, ['workspace --no-auto-back-and-forth "1: terminal"'])
+
+    def test_missing_number_activates_normal_numbered_workspace(self):
+        harness = self.numbered()
+        harness.state["nodes"].clear()
+        live = harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
+        self.assertEqual(live["num"], 1)
+        self.assertEqual(live["name"], "1")
+        self.assertEqual(harness.commands[0], "workspace --no-auto-back-and-forth number 1")
+
+    def test_duplicate_workspace_numbers_are_ambiguous(self):
+        harness = self.numbered()
+        harness.state["nodes"].append(dict(harness.state["nodes"][0], id=2, name="1: other"))
+        with self.assertRaises(AmbiguousState):
+            harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
+        self.assertEqual(harness.commands, [])
+
+    def test_numbered_workspace_sync_preserves_user_rename(self):
+        harness = self.numbered()
         harness.backend.safe_workspaces.add(1)
         for key, con_id in (("frontend", 10), ("backend", 11), ("logs", 12)):
             self.add_leaf(harness, key, con_id)
         harness.backend.finalize(self.workflow)
-        harness.state["nodes"][0]["name"] = "user-renamed"
-        harness.backend.mutable_ids.clear()
+        harness.state["nodes"][0]["name"] = "1: user-renamed"
         harness.commands.clear()
+        self.assertEqual(harness.backend.sync(self.workflow), [])
+        self.assertEqual(harness.state["nodes"][0]["name"], "1: user-renamed")
+        self.assertEqual(harness.commands, [])
 
-        changes = harness.backend.sync(self.workflow)
-
-        self.assertIn(("work", "workspace identity/name"), changes)
-        self.assertEqual(marked(harness.state, self.workflow.mark("work"))["name"], "declared")
-        self.assertTrue(any(command.startswith("rename workspace") for command in harness.commands))
-        self.assertFalse(any("move container" in command for command in harness.commands))
+    def test_numbered_sync_moves_windows_to_existing_destination(self):
+        harness = self.numbered()
+        for key, con_id in (("frontend", 10), ("backend", 11), ("logs", 12)):
+            self.add_leaf(harness, key, con_id)
+        other = {"id": 2, "type": "workspace", "name": "2: other", "num": 2,
+                 "nodes": harness.state["nodes"][0]["nodes"], "floating_nodes": []}
+        harness.state["nodes"][0]["nodes"] = []
+        harness.state["nodes"].append(other)
+        harness.backend.sync(self.workflow)
+        self.assertTrue(harness.backend._structure_matches(self.workflow, harness.state))
+        self.assertEqual(harness.state["nodes"][0]["name"], "1: terminal")
+        self.assertFalse(any("rename workspace" in cmd for cmd in harness.commands))
 
 
 if __name__ == "__main__":
