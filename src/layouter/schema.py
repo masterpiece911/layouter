@@ -81,6 +81,8 @@ def kitty(value: dict, where: str) -> dict:
                     "class", "size", "session", "layout", "title", "pane", "tab"}, where)
     result = {k: copy.deepcopy(v) for k, v in value.items()
               if k not in {"name", "pane", "tab", "layout", "title", "session"}}
+    if "name" in value:
+        result["name"] = value["name"]
     if "session" in value:
         result["session_file"] = copy.deepcopy(value["session"])
     modes = sum(key in value for key in ("pane", "tab")) + ("session_file" in result)

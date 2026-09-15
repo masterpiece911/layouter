@@ -384,7 +384,7 @@ def resolve(config: dict, project: Path, name: str = "default",
         elif kind == "app":
             allowed |= {"parent", "command", "match", "cwd", "env", "adopt", "size"}
         elif kind == "kitty":
-            allowed |= {"parent", "cwd", "env", "tabs", "executable", "config", "options", "session_file",
+            allowed |= {"name", "parent", "cwd", "env", "tabs", "executable", "config", "options", "session_file",
                         "class", "size"}
         else:
             raise ConfigError(f"{nw}: unknown node type {kind!r}")
@@ -432,7 +432,8 @@ def resolve(config: dict, project: Path, name: str = "default",
         nodes.append(Node(
             id=nid, kind=kind, parent=parent, cwd=ncwd, env=nenv,
             name=(f"{n['number']}: {line(n.get('name'), nw + '.name')}" if "number" in n
-                  else line(n.get("name"), nw + ".name")) if kind == "workspace" else None,
+                  else line(n.get("name"), nw + ".name")) if kind == "workspace"
+                  else line(n.get("name", nid), nw + ".name") if kind == "kitty" else None,
             layout=layout, command=command(n.get("command", []), nw + ".command", required=kind == "app"),
             match=match, adopt=boolean(n.get("adopt", False), nw + ".adopt"),
             tabs=ntabs, executable=executable,

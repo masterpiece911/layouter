@@ -320,6 +320,24 @@ class KittyTests(unittest.TestCase):
             self.kitty.create_pane(self.node.tabs[0], self.node.tabs[0].panes[0], state)
             remote.assert_called_once()
 
+    def test_start_uses_declaration_title_and_sets_first_pane_separately(self):
+        pane = replace(self.node.tabs[0].panes[0], title="first pane")
+        tab = replace(self.node.tabs[0], panes=(pane, *self.node.tabs[0].panes[1:]))
+        self.kitty.node = replace(self.node, name="My terminal", tabs=(tab,))
+        i3 = Mock()
+        i3.events.return_value.__enter__ = Mock()
+        i3.events.return_value.__exit__ = Mock(return_value=False)
+        i3.tree.return_value = {"id": 0, "nodes": []}
+        i3.wait_new.return_value = {"id": 5}
+        with patch.object(self.runtime, "spawn") as spawn, \
+                patch.object(self.kitty, "wait_ready", return_value=self.state()), \
+                patch.object(self.kitty, "remote") as remote:
+            self.kitty.start(i3, Snapshot(False))
+        argv = spawn.call_args.args[0]
+        self.assertEqual(argv[argv.index("--title") + 1], "My terminal")
+        self.assertIn(("set-window-title", "--match", "id:3", "--", "first pane"),
+                      [call.args for call in remote.call_args_list])
+
     def test_bootstrap_encodes_arbitrary_command_and_env_safely(self):
         from dataclasses import replace
         original = self.node.tabs[0].panes[0]

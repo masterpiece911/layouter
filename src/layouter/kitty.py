@@ -244,8 +244,7 @@ class Kitty:
         argv += ["--override", "allow_remote_control=socket-only",
                  "--listen-on", "unix:" + str(self.path), "--class", self.wm_class,
                  "--name", self.wm_instance, "--directory", str(n.cwd), "--session", str(session_file)]
-        if first_pane and first_pane.title:
-            argv += ["--title", first_pane.title]
+        argv += ["--title", n.name or n.id]
         with i3.events() as events:
             baseline = {c["id"] for c in walk(i3.tree())}
             self.runtime.spawn(argv, n.cwd, {**n.env, "LAYOUTER_SESSION": w.session_id,
@@ -260,6 +259,9 @@ class Kitty:
             if not live:
                 raise BackendError(f"Initial pane {n.id}.{first_tab.id}.{first_pane.id} exited during startup; "
                                    "use hold = true to retain short-lived output")
+            if first_pane.title:
+                self.remote("set-window-title", "--match", f"id:{live.window['id']}",
+                            "--", first_pane.title)
             self.remote("set-tab-title", "--match", f"id:{live.tab['id']}", "--", first_tab.title)
         return result
 
