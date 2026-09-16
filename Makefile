@@ -9,7 +9,7 @@ test:
 	PYTHONPATH=src "$(PYTHON)" -m unittest discover -s tests -v
 
 check:
-	PYTHONPATH=src "$(PYTHON)" -m layouter -f examples/debug.toml --check debug checkout
+	PYTHONPATH=src "$(PYTHON)" -m layouter -f examples/morning.toml --check morning garden
 
 zipapp:
 	"$(PYTHON)" scripts/build_zipapp.py

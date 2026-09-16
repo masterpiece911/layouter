@@ -15,17 +15,22 @@ editor, disturb the server, or remove windows you opened yourself.
 
 ```sh
 layouter
-layouter debug checkout
-layouter -C ~/src/foo
-layouter -C ~/src/foo debug checkout
+layouter morning garden
+layouter evening
+layouter -C ~/src/garden
+layouter -C ~/src/meadow studio
 ```
+
+Here, `morning`, `evening`, and `studio` are example workflow filenames, and
+`garden` is an argument declared by the `morning` workflow. They are names you
+choose, not built-in subcommands.
 
 Normal invocations are deliberately conservative. An explicit `--sync` mode is
 available when you do want Layouter to restore the declared arrangement of its
 managed elements:
 
 ```sh
-layouter --sync debug checkout
+layouter --sync morning garden
 ```
 
 ## Installation
@@ -51,10 +56,10 @@ install -Dm755 dist/layouter ~/.local/bin/layouter
 ## A first workflow
 
 A project workflow lives in `.dev/<workflow>.toml`. For example, save the
-following as `.dev/debug.toml`:
+following as `.dev/morning.toml`:
 
 ```toml
-session = "debug-{microfrontend}"
+session = "morning-{microfrontend}"
 focus = "code"
 
 [args]
@@ -63,6 +68,7 @@ microfrontend = { position = 0, required = true }
 [[workspace]]
 number = 2
 name = "code"
+output = "DP-1"
 
   [[workspace.window]]
   name = "zed"
@@ -71,6 +77,7 @@ name = "code"
 [[workspace]]
 number = 3
 name = "dev"
+output = "DP-1"
 layout = "splith"
 
   [[workspace.kitty]]
@@ -108,6 +115,7 @@ layout = "splith"
 [[workspace]]
 number = 4
 name = "browser"
+output = "HDMI-1"
 
   [[workspace.window]]
   name = "browser"
@@ -118,14 +126,20 @@ name = "browser"
   ]
 ```
 
+Replace `DP-1` and `HDMI-1` with your connected display names, listed by
+`i3-msg -t get_outputs` or `swaymsg -t get_outputs`. Remove the `output` lines to
+let the compositor choose. This example puts new `code` and `dev` workspaces
+on one display and `browser` on another. Existing workspaces keep their display
+unless you use `--sync`.
+
 Now run:
 
 ```sh
-layouter debug checkout
+layouter morning garden
 ```
 
-`checkout` becomes the value of `microfrontend`. Layouter expands the session
-name to `debug-checkout`, opens the three compositor workspaces, starts the two
+`garden` becomes the value of `microfrontend`. Layouter expands the session
+name to `morning-garden`, opens the three compositor workspaces, starts the two
 kitty OS windows and their panes, opens Zed and Firefox, and finally focuses the
 `code` workspace. Running the same command again creates nothing if everything
 is still present.
@@ -134,7 +148,7 @@ Use `--check` while writing a workflow. It parses and expands the file without
 connecting to the desktop or launching anything:
 
 ```sh
-layouter --check debug checkout
+layouter --check morning garden
 ```
 
 ## Finding workflows
@@ -143,9 +157,9 @@ Unless `-C` is present, the project is the current directory. `-C DIR`
 selects the project directory before Layouter resolves the
 workflow, relative paths, working directories, and session identity.
 
-For `layouter debug`, Layouter first looks for `.dev/debug.toml` in the selected
+For `layouter morning`, Layouter first looks for `.dev/morning.toml` in the selected
 project. If that file is absent, it looks for
-`~/.config/layouter/debug.toml`. `XDG_CONFIG_HOME` replaces `~/.config` when it
+`~/.config/layouter/morning.toml`. `XDG_CONFIG_HOME` replaces `~/.config` when it
 is set. The same rule applies to the implicit `default` workflow used by a bare
 `layouter` invocation.
 
@@ -187,8 +201,8 @@ directory, including when the project was selected with `-C`.
 
 The canonical project directory and expanded `session` string form the stable
 session identity. Declaration names extend that identity for individual
-elements. That is why `debug-checkout` and `debug-payments` can coexist, while
-two invocations whose expanded session is simply `debug` deliberately refer to
+elements. That is why `morning-garden` and `morning-meadow` can coexist, while
+two invocations whose expanded session is simply `morning` deliberately refer to
 the same live workspace.
 
 Workspaces, GUI windows, kitty OS windows, containers, and tabs use `name` as
@@ -311,8 +325,8 @@ There is no required change to your global `kitty.conf`. To prepare kitty:
    window yourself; let the first Layouter invocation create it:
 
    ```sh
-   layouter --check debug checkout
-   layouter debug checkout
+   layouter --check morning meadow
+   layouter morning meadow
    ```
 
 3. Layouter starts it with the equivalent of these remote-control options:
@@ -403,6 +417,27 @@ Workspaces are destinations, not marked Layouter objects. Neither ordinary runs
 nor `--sync` rename them. Existing windows stay where they are during ordinary
 runs; `--sync` returns managed windows to their declared destinations.
 
+Set `output` to a display's exact connector name to choose where a new workspace
+opens:
+
+```toml
+[[workspace]]
+number = 2
+name = "code"
+output = "DP-1"
+```
+
+List connector names with `i3-msg -t get_outputs` or `swaymsg -t get_outputs`.
+Each workspace can target a different output. Without `output`, the compositor
+chooses the display as usual.
+
+Ordinary runs apply this setting only when activating a missing workspace and
+preserve the display of existing workspaces. Use `--sync` to move an existing
+workspace to its configured output. This moves the entire workspace, including
+unmanaged windows on it. `--dry-run` reports required output placement; an
+unavailable output produces an error when placement is needed (or during sync).
+`--check` validates the setting without requiring a connected display.
+
 ## Reconciliation and synchronization
 
 Layouter does not keep a persistent registry or daemon. The source of truth is
@@ -420,8 +455,8 @@ correction.
 restores the declared arrangement of managed elements:
 
 ```sh
-layouter --dry-run --sync debug checkout
-layouter --sync debug checkout
+layouter --dry-run --sync morning meadow
+layouter --sync morning meadow
 ```
 
 For i3/Sway, synchronization restores managed workspace assignments,
@@ -460,16 +495,17 @@ workflow belongs to it, including tokens beginning with `-`.
 | `--timeout SECONDS` | Set the IPC and discovery timeout |
 | `--version` | Print the version |
 
-Some representative invocations:
+Some representative invocations, assuming you have defined the `morning`,
+`evening`, and `studio` workflows (`morning` takes one argument):
 
 ```sh
-layouter -C ~/src/foo --list
-layouter -C ~/src/foo --check debug checkout
-layouter -C ~/src/foo --global debug checkout
-layouter -C ~/src/foo --dry-run debug checkout
-layouter -C ~/src/foo --dry-run --sync debug checkout
-layouter -C ~/src/foo --sync debug checkout
-layouter -C ~/src/foo debug checkout
+layouter -C ~/src/garden --list
+layouter -C ~/src/garden --check morning garden
+layouter -C ~/src/garden --global evening
+layouter -C ~/src/garden --dry-run studio
+layouter -C ~/src/meadow --dry-run --sync morning meadow
+layouter -C ~/src/meadow --sync morning meadow
+layouter -C ~/src/garden evening
 ```
 
 Exit code `0` means success, `1` is a runtime or backend error, `2` is a
@@ -499,7 +535,7 @@ artifacts with:
 
 ```sh
 PYTHONPATH=src python3 -m unittest discover -s tests -v
-PYTHONPATH=src python3 -m layouter -f examples/debug.toml --check debug checkout
+PYTHONPATH=src python3 -m layouter -f examples/morning.toml --check morning garden
 python3 scripts/build_zipapp.py
 python3 scripts/build_source_archive.py
 ```
