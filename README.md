@@ -488,6 +488,12 @@ Use `make build` to build artifacts alone, or `make test` and `make check` to
 run individual checks. Select an interpreter with `make release PYTHON=python3.12`.
 Run `make help` for the available targets.
 
+The automated suite needs no running desktop or third-party Python test
+packages. Its socket fixtures require permission to bind local Unix sockets;
+restricted environments report errors rather than skipping those tests. See
+the [validation record](docs/validation.md) for the latest results and commands
+for running individual test modules.
+
 Run the test suite, validate the complete example, and build the distributable
 artifacts with:
 

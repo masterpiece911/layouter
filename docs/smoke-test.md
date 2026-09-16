@@ -12,8 +12,9 @@ dist/layouter -f examples/smoke.toml --dry-run smoke
 dist/layouter -f examples/smoke.toml smoke
 ```
 
-Expected: workspace `99: Layouter smoke`, one nested container, one kitty OS
-window, one tab, and two shell panes. Initial focus ends in pane One.
+Expected: workspace number `99` (preserving its existing name, if any), one
+kitty OS window, one tab, and two shell panes. The declared single-child
+container may be flattened. Initial focus ends in pane One.
 
 For Sway, use its nested-layout fixture through the same placement path:
 
@@ -24,8 +25,9 @@ dist/layouter -f examples/sway-smoke.toml --dry-run sway-smoke
 dist/layouter -f examples/sway-smoke.toml sway-smoke
 ```
 
-Expected: workspace `98: Layouter Sway smoke`, one nested container, one native
-kitty view, one tab, and two panes. Initial focus ends in pane One.
+Expected: workspace number `98` (preserving its existing name, if any), one
+native kitty view, one tab, and two panes. The declared single-child container
+may be flattened. Initial focus ends in pane One.
 
 Then exercise create-only reconciliation:
 
@@ -37,8 +39,9 @@ Then exercise create-only reconciliation:
 4. Move kitty to another workspace. Run again. Kitty stays where you moved it.
 5. Detach One to another kitty OS window in the same process. It remains present.
 6. Run with `--no-focus` from another window. Final focus returns there.
-7. Inspect the compositor tree and confirm Layouter marks the managed workspace
-   and kitty view without removing user marks.
+7. Inspect the compositor tree and confirm Layouter marks the managed kitty
+   view without removing user marks. Workspaces are destinations and are not
+   marked or renamed by Layouter.
 
 Then exercise explicit synchronization:
 
