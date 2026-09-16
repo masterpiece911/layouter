@@ -365,16 +365,55 @@ class Compositor(AbstractContextManager):
         number = self._workspace_number(workspace.name)
         return f"number {number}" if number is not None else quote(workspace.name)
 
+    def _output_matches(self, workspace: Node, live: dict, tree: dict) -> bool:
+        return any(item.get("type") == "output" and item.get("name") == workspace.output
+                   for item in path_to(tree, int(live["id"])))
+
+    def _validate_output(self, workspace: Node, tree: dict):
+        if workspace.output and not any(item.get("type") == "output"
+                                        and item.get("name") == workspace.output
+                                        and item.get("name") != "__i3"
+                                        for item in walk(tree)):
+            raise BackendError(f"Workspace {workspace.name}: output {workspace.output!r} is not connected")
+
+    def output_plan(self, workflow: Workflow, *, sync: bool = False) -> list[tuple[str, str]]:
+        """Validate and report display placement without changing focus or desktop state."""
+        tree = self.tree()
+        result = []
+        for workspace in self._managed_workspaces(workflow):
+            if not workspace.output:
+                continue
+            live = self.resolve_node(workflow, workspace, tree)
+            if live is None or sync:
+                self._validate_output(workspace, tree)
+                if live is None or not self._output_matches(workspace, live, tree):
+                    result.append((workspace.id, f"workspace output {workspace.output}"))
+        return result
+
+    def _place_workspace_output(self, workspace: Node, live: dict):
+        if not workspace.output:
+            return
+        tree = self.tree()
+        self._validate_output(workspace, tree)
+        if self._output_matches(workspace, live, tree):
+            return
+        self.command(f"workspace --no-auto-back-and-forth {quote(live['name'])}; "
+                     f"move workspace to output {quote(workspace.output)}")
+        if not self._output_matches(workspace, live, self.tree()):
+            raise BackendError(f"Could not move workspace {live['name']} to output {workspace.output}")
+
     def _ensure_workspace(self, workflow: Workflow, node: Node) -> dict:
         """Activate the ordinary destination if absent; never mark or rename it."""
         self._sets()
         workspace = self._workspace(workflow, node)
         live = self.resolve_node(workflow, workspace, self.tree())
         if live is None:
+            self._validate_output(workspace, self.tree())
             self.command(f"workspace --no-auto-back-and-forth {self._workspace_argument(workspace)}")
             live = self.resolve_node(workflow, workspace, self.tree())
             if live is None:
                 raise BackendError(f"Could not activate workspace {workspace.name}")
+            self._place_workspace_output(workspace, live)
         if not live.get("nodes") and not live.get("floating_nodes"):
             self.safe_workspaces.add(int(live["id"]))
         return live
@@ -591,7 +630,7 @@ class Compositor(AbstractContextManager):
     def sync_plan(self, workflow: Workflow) -> list[tuple[str, str]]:
         """Report workspace, structure, and layout corrections without issuing mutations."""
         tree = self.tree()
-        result = []
+        result = self.output_plan(workflow, sync=True)
         for workspace in self._managed_workspaces(workflow):
             live = self.resolve_node(workflow, workspace, tree)
             if live is None:
@@ -607,7 +646,8 @@ class Compositor(AbstractContextManager):
         """Rebuild managed structure when necessary, then restore declared layouts and sizes."""
         changes = self.sync_plan(workflow)
         for workspace in self._managed_workspaces(workflow):
-            self._ensure_workspace(workflow, workspace)
+            live = self._ensure_workspace(workflow, workspace)
+            self._place_workspace_output(workspace, live)
         tree = self.tree()
         if not self._structure_matches(workflow, tree):
             leaves = []

@@ -27,6 +27,18 @@ class ConfigTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name)
 
+    def test_workspace_output(self):
+        source = self.project / "workflow.toml"
+        source.write_text('[[workspace]]\nname="dev"\noutput="DP-1"\n')
+        data, sources = load(self.project, selected=str(source))
+        workflow = resolve(data, self.project, sources=sources)
+        self.assertEqual(workflow.nodes[0].output, "DP-1")
+        for invalid in ("", 42, ["DP-1"], "DP-1\n"):
+            data = basic()
+            data["workflows"]["default"]["nodes"]["code"]["output"] = invalid
+            with self.subTest(output=invalid), self.assertRaises(ConfigError):
+                resolve(data, self.project)
+
     def test_local_replaces_global_and_global_is_fallback(self):
         global_file = self.project / "global" / "default.toml"
         global_file.parent.mkdir()

@@ -819,5 +819,65 @@ class PlacementTests(unittest.TestCase):
         self.assertFalse(any("rename workspace" in cmd for cmd in harness.commands))
 
 
+class WorkspaceOutputTests(unittest.TestCase):
+    def setUp(self):
+        self.workflow = kitty_workflow(Path('/tmp'))
+        self.workflow = replace(self.workflow, nodes=tuple(
+            replace(n, output='DP-1') if n.kind == 'workspace' else n
+            for n in self.workflow.nodes))
+        self.workspace = self.workflow.by_id['work']
+        self.live = {'id': 3, 'type': 'workspace', 'name': 'test', 'nodes': []}
+        self.left = {'id': 1, 'type': 'output', 'name': 'eDP-1', 'nodes': [self.live]}
+        self.right = {'id': 2, 'type': 'output', 'name': 'DP-1', 'nodes': []}
+        self.tree = {'id': 0, 'type': 'root', 'nodes': [self.left, self.right]}
+        self.backend = Compositor.__new__(Compositor)
+        self.backend.tree = Mock(side_effect=lambda: copy.deepcopy(self.tree))
+        self.backend.command = Mock(side_effect=self.command)
+
+    def command(self, value):
+        if 'move workspace to output' in value:
+            self.left['nodes'].remove(self.live)
+            self.right['nodes'].append(self.live)
+        elif not self.left['nodes'] and not self.right['nodes']:
+            self.left['nodes'].append(self.live)
+
+    def test_normal_run_preserves_existing_display(self):
+        self.assertEqual(self.backend.output_plan(self.workflow), [])
+        self.backend._ensure_workspace(self.workflow, self.workspace)
+        self.backend.command.assert_not_called()
+
+    def test_new_workspace_uses_requested_display(self):
+        self.left['nodes'].clear()
+        self.assertEqual(self.backend.output_plan(self.workflow), [('work', 'workspace output DP-1')])
+        self.backend.command.assert_not_called()
+        self.backend._ensure_workspace(self.workflow, self.workspace)
+        self.assertEqual(self.right['nodes'], [self.live])
+
+    def test_sync_moves_whole_workspace_and_is_idempotent(self):
+        self.live['nodes'].append({'id': 4, 'type': 'con', 'window': 44})
+        self.backend._structure_matches = Mock(return_value=True)
+        self.backend._layout_differences = Mock(return_value=[])
+        self.backend._initial_layout_and_sizes = Mock()
+        self.assertEqual(self.backend.sync(self.workflow), [('work', 'workspace output DP-1')])
+        self.assertEqual(self.right['nodes'][0]['nodes'][0]['id'], 4)
+        self.backend.command.reset_mock()
+        self.assertEqual(self.backend.sync(self.workflow), [])
+        self.backend.command.assert_not_called()
+
+    def test_unavailable_output_fails_before_mutation(self):
+        self.tree['nodes'].remove(self.right)
+        with self.assertRaisesRegex(BackendError, 'not connected'):
+            self.backend.output_plan(self.workflow, sync=True)
+        self.left['nodes'].clear()
+        with self.assertRaisesRegex(BackendError, 'not connected'):
+            self.backend._ensure_workspace(self.workflow, self.workspace)
+        self.backend.command.assert_not_called()
+
+    def test_unsuccessful_move_is_detected(self):
+        self.backend.command.side_effect = None
+        with self.assertRaisesRegex(BackendError, 'Could not move'):
+            self.backend._place_workspace_output(self.workspace, self.live)
+
+
 if __name__ == "__main__":
     unittest.main()

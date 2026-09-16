@@ -376,7 +376,7 @@ def resolve(config: dict, project: Path, name: str = "default",
         kind = text(n.get("type"), nw + ".type")
         allowed = {"enabled", "type"}
         if kind == "workspace":
-            allowed |= {"name", "number", "layout", "ref"}
+            allowed |= {"name", "number", "layout", "output", "ref"}
         elif kind == "container":
             allowed |= {"parent", "layout", "size"}
             if "layout" not in n:
@@ -441,6 +441,7 @@ def resolve(config: dict, project: Path, name: str = "default",
             options=options, session_file=session_file,
             wm_class=line(n["class"], nw + ".class") if "class" in n else None,
             size=float(size) if size is not None else None,
+            output=line(n["output"], nw + ".output") if "output" in n else None,
         ))
     by_id = {n.id: n for n in nodes}
     for node in nodes:

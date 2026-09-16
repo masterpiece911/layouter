@@ -93,6 +93,9 @@ class Reconciler:
                     for pane in tab.panes:
                         present = state.pane(self.workflow.pane_key(node.id, tab.id, pane.id))
                         result.append(Action("keep" if present else "create", f"{node.id}.{tab.id}.{pane.id}", "pane"))
+        if not sync and any(node.output for node in self.workflow.nodes):
+            for target, detail in self.i3.output_plan(self.workflow):
+                result.append(Action("create", target, detail))
         if sync:
             for target, detail in self.i3.sync_plan(self.workflow):
                 result.append(Action("sync", target, detail))

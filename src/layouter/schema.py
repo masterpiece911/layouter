@@ -150,7 +150,7 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
                     children(item, nid, iw)
 
     for workspace in entries(value["workspace"], "workspace"):
-        allowed(workspace, {"name", "number", "layout", "enabled", *CHILDREN}, "workspace")
+        allowed(workspace, {"name", "number", "layout", "output", "enabled", *CHILDREN}, "workspace")
         name, _ = element_name(workspace, "workspace")
         nid = workspace_id(name)
         add(nid, {"type": "workspace", "ref": name,

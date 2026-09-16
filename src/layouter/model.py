@@ -56,6 +56,7 @@ class Node:
     session_file: Path | None = None
     wm_class: str | None = None
     size: float | None = None
+    output: str | None = None
 
 
 @dataclass(frozen=True)
