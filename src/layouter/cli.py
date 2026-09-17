@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
+import tomllib
 import sys
 from pathlib import Path
 
 from . import __version__
-from .config import declarations, load, resolve, workflow_data
+from .config import declarations, identifier, load, resolve, workflow_data
+from .capture import capture, dumps, save_layout, write_document
+from .schema import normalize_document
 from .errors import ConfigError, LayouterError
 from .i3 import Compositor
 from .model import digest
@@ -31,6 +35,8 @@ def parser() -> argparse.ArgumentParser:
     mode.add_argument("--list", action="store_true", help="list workflows and arguments; no desktop access")
     mode.add_argument("--check", action="store_true", help="validate the selected workflow; no desktop access")
     mode.add_argument("--dry-run", action="store_true", help="inspect live state and print a plan without changing it")
+    mode.add_argument("--capture", action="store_true", help="create a workflow draft from the live desktop")
+    mode.add_argument("--save-layout", action="store_true", help="save live arrangement into an existing workflow (with backup)")
     p.add_argument("--sync", action="store_true",
                    help="correct managed placement, layouts, order, and sizes")
     p.add_argument("--no-focus", action="store_true", help="restore original compositor focus after creation")
@@ -52,6 +58,33 @@ def main(argv: list[str] | None = None) -> int:
             project = (path if path.is_absolute() else project / path).resolve()
             if not project.is_dir():
                 raise ConfigError(f"Project directory does not exist: {project}")
+        if args.timeout is not None and (not math.isfinite(args.timeout) or args.timeout <= 0):
+            raise ConfigError("--timeout must be a finite positive number")
+        if (args.capture or args.save_layout) and (args.sync or args.no_focus):
+            raise ConfigError("--capture/--save-layout cannot be combined with --sync or --no-focus")
+        if args.capture:
+            identifier(args.workflow, "workflow name")
+            if args.workflow_args:
+                raise ConfigError("--capture does not accept workflow arguments")
+            if args.file:
+                destination = Path(args.file).expanduser()
+                if not destination.is_absolute():
+                    destination = project / destination
+            elif args.global_only:
+                destination = Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")) / "layouter" / (args.workflow + ".toml")
+            else:
+                destination = project / ".dev" / (args.workflow + ".toml")
+            if destination.exists() or destination.is_symlink():
+                raise ConfigError(f"Capture destination already exists: {destination}; choose another file or use --save-layout")
+            with Compositor(args.timeout or 30) as i3:
+                document, warnings = capture(i3.tree(), args.workflow, project, Runtime(), args.timeout or 30)
+            content = dumps(document, warnings)
+            resolve(normalize_document(tomllib.loads(content), args.workflow), project, args.workflow)
+            write_document(destination, content)
+            print(f"Captured: {destination}")
+            for warning in warnings:
+                print(f"Warning: {warning}", file=sys.stderr)
+            return 0
         config, sources = load(project, args.file, workflow=args.workflow, discover=args.list,
                                force_global=args.global_only)
         if args.timeout is not None:
@@ -71,6 +104,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Project: {workflow.project}")
             print(f"{len(workflow.nodes)} compositor nodes; "
                   f"{sum(len(t.panes) for n in workflow.nodes for t in n.tabs)} kitty panes")
+            return 0
+        if args.save_layout:
+            source = sources[0]
+            original = source.read_bytes()
+            document = tomllib.loads(original.decode("utf-8"))
+            # Resolve the same bytes we will update, not a potentially older load.
+            workflow = resolve(normalize_document(document, args.workflow), project,
+                               args.workflow, args.workflow_args, sources)
+            with Compositor(args.timeout or workflow.timeout) as i3:
+                document, warnings = save_layout(document, workflow, i3.tree(), i3, Runtime())
+            content = dumps(document, warnings)
+            resolve(normalize_document(tomllib.loads(content), args.workflow), project,
+                    args.workflow, args.workflow_args)
+            backup = write_document(source, content, original)
+            print(f"Saved layout: {source} (backup: {backup})")
+            for warning in warnings:
+                print(f"Warning: {warning}", file=sys.stderr)
             return 0
         runtime = Runtime()
 

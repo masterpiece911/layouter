@@ -78,9 +78,9 @@ def panes(value, where: str) -> dict:
 def kitty(value: dict, where: str) -> dict:
     """Normalize inline panes, explicit tabs, or a startup-only kitty session."""
     allowed(value, {"name", "enabled", "cwd", "env", "executable", "config", "options",
-                    "class", "size", "session", "layout", "title", "pane", "tab"}, where)
+                    "class", "size", "order", "session", "layout", "title", "pane", "tab"}, where)
     result = {k: copy.deepcopy(v) for k, v in value.items()
-              if k not in {"name", "pane", "tab", "layout", "title", "session"}}
+              if k not in {"name", "pane", "tab", "layout", "title", "session", "order"}}
     if "name" in value:
         result["name"] = value["name"]
     if "session" in value:
@@ -127,27 +127,33 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
             raise ConfigError(f"{where}: duplicate element id {nid!r}; window/kitty/container IDs must be unique")
         nodes[nid] = node
 
-    def children(owner: dict, parent: str, location: str):
-        # TOML groups repeated arrays by key. Preserve order within each group.
+    def visit_children(owner: dict, parent: str, location: str):
+        # Explicit order can interleave different child kinds despite TOML grouping.
+        children = []
         for kind, items in owner.items():
             if kind not in CHILDREN:
                 continue
             for index, item in enumerate(entries(items, location + "." + kind)):
-                iw = location + "." + kind
-                if kind == "container" and "name" not in item:
-                    nid = "container-" + digest(parent, str(index))
-                else:
-                    _, nid = element_name(item, iw)
-                if kind == "kitty":
-                    node = {"type": "kitty", "parent": parent, **kitty(item, iw)}
-                else:
-                    fields = {"name", "enabled", "command", "match", "cwd", "env", "adopt", "size"} if kind == "window" else {"name", "enabled", "layout", "size", *CHILDREN}
-                    allowed(item, fields, iw)
-                    node = {"type": "app" if kind == "window" else "container", "parent": parent,
-                            **{k: copy.deepcopy(v) for k, v in item.items() if k not in CHILDREN | {"name"}}}
-                add(nid, node)
-                if kind == "container":
-                    children(item, nid, iw)
+                order = item.get("order", len(children))
+                if type(order) is not int or order < 0:
+                    raise ConfigError(f"{location}.{kind}.order: expected a nonnegative integer")
+                children.append((order, kind, index, item))
+        for _, kind, index, item in sorted(children, key=lambda child: child[0]):
+            iw = location + "." + kind
+            if kind == "container" and "name" not in item:
+                nid = "container-" + digest(parent, str(index))
+            else:
+                _, nid = element_name(item, iw)
+            if kind == "kitty":
+                node = {"type": "kitty", "parent": parent, **kitty(item, iw)}
+            else:
+                fields = {"name", "enabled", "command", "match", "cwd", "env", "adopt", "size", "order"} if kind == "window" else {"name", "enabled", "layout", "size", "order", *CHILDREN}
+                allowed(item, fields, iw)
+                node = {"type": "app" if kind == "window" else "container", "parent": parent,
+                        **{k: copy.deepcopy(v) for k, v in item.items() if k not in CHILDREN | {"name", "order"}}}
+            add(nid, node)
+            if kind == "container":
+                visit_children(item, nid, iw)
 
     for workspace in entries(value["workspace"], "workspace"):
         allowed(workspace, {"name", "number", "layout", "output", "enabled", *CHILDREN}, "workspace")
@@ -155,7 +161,7 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
         nid = workspace_id(name)
         add(nid, {"type": "workspace", "ref": name,
                   **{k: copy.deepcopy(v) for k, v in workspace.items() if k not in CHILDREN}})
-        children(workspace, nid, "workspace")
+        visit_children(workspace, nid, "workspace")
     result["nodes"] = nodes
     return result
 

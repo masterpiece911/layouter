@@ -481,6 +481,69 @@ change a running process's working directory or environment, retitle individual
 panes, close extra elements, or inspect the internals of a handcrafted kitty
 session. A second sync against an already matching desktop is a no-op.
 
+## Saving a desktop arrangement
+
+Use `--capture` to create a new workflow draft from the current i3/Sway desktop:
+
+```sh
+layouter --capture studio
+layouter --file .dev/captured.toml --capture
+```
+
+The first command writes `.dev/studio.toml` in the selected project. `-C`,
+`--file`, and `--global` also select capture destinations. Capture refuses to
+replace an existing file and accepts no workflow arguments. It captures all
+regular workspaces, their displays, tiled containers, layouts, and percentages.
+It only reads desktop state; it does not move, launch, focus, or adopt windows.
+
+GUI application declarations include matchers and best-effort command/cwd hints
+from an accessible process. They start with `enabled = false`: review the argv,
+supply missing launch information, then enable them. A live process command is
+not always a reusable launch command, especially for applications sharing a
+process across windows. Environments and application-internal state such as
+browser tabs or unsaved documents are not captured.
+
+Kitty instances with a discoverable private Layouter socket are captured as
+inline tabs and panes, including available titles, layouts, working directories,
+and command hints. Review those commands too: a foreground process can be
+transient. An inaccessible terminal is exported as a disabled application draft.
+Floating windows and scratchpad contents are omitted. Warnings appear both in
+the generated file and on stderr.
+
+Use `--save-layout` after rearranging an existing workflow:
+
+```sh
+layouter --save-layout morning garden
+```
+
+This updates the selected source file using the session identified by the
+supplied workflow arguments. It saves managed tiled windows' workspace placement,
+container nesting, relative order, sizes, and workspace outputs/layouts. New
+structural containers are added as needed; unmanaged applications are not added.
+Missing or disabled declarations are retained. Commands, working directories,
+environments, session templates, and argument declarations remain intact.
+Changes to a parameterized workflow apply to that workflow file for all argument
+values, with layout captured from the selected session.
+
+For controlled Kitty windows, save-layout records tab titles/layouts and pane
+order within each declared tab. Cross-tab pane moves retain their declared
+membership and produce a warning because tab membership participates in pane
+identity. Exact Kitty `splits` geometry and floating/scratchpad placement are not
+representable. Moves that would change a location-derived element identity are
+rejected; use simple names containing letters, digits, underscores, or hyphens
+for elements you intend to move between containers.
+
+Save-layout validates the result before replacing the source and keeps the
+original bytes in `<file>.bak` (then `.bak.1`, `.bak.2`, etc.). It rewrites TOML
+formatting; original comments remain in the backup. Neither saving mode changes
+the running desktop or combines with `--sync`, `--no-focus`, or another CLI mode.
+
+An optional nonnegative `order` on windows, Kitty windows, and containers records
+sibling order across different child types. Lower values come first; ties retain
+declaration order. Without it, existing declaration ordering is unchanged.
+This lets captures represent a window, a container, and another window in that
+sequence despite TOML grouping arrays by field name.
+
 ## Command-line reference
 
 Options must appear before the workflow name because every token after the
@@ -494,6 +557,8 @@ workflow belongs to it, including tokens beginning with `-`.
 | `--list` | List discoverable workflows and argument signatures |
 | `--check` | Parse, expand, and validate without desktop access |
 | `--dry-run` | Inspect live state and print the plan; combines with `--sync` |
+| `--capture` | Create a new workflow draft from the live desktop |
+| `--save-layout` | Save the live arrangement to the selected workflow, with backup |
 | `--sync` | Correct declared layout and placement of managed elements |
 | `--no-focus` | Restore the original compositor focus |
 | `--timeout SECONDS` | Set the IPC and discovery timeout |
