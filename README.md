@@ -68,7 +68,7 @@ microfrontend = { position = 0, required = true }
 [[workspace]]
 number = 2
 name = "code"
-output = "DP-1"
+output = ["DP-1", "eDP-1"]
 
   [[workspace.window]]
   name = "zed"
@@ -77,7 +77,7 @@ output = "DP-1"
 [[workspace]]
 number = 3
 name = "dev"
-output = "DP-1"
+output = ["DP-1", "eDP-1"]
 layout = "splith"
 
   [[workspace.kitty]]
@@ -115,7 +115,7 @@ layout = "splith"
 [[workspace]]
 number = 4
 name = "browser"
-output = "HDMI-1"
+output = ["HDMI-1", "eDP-1"]
 
   [[workspace.window]]
   name = "browser"
@@ -126,10 +126,12 @@ output = "HDMI-1"
   ]
 ```
 
-Replace `DP-1` and `HDMI-1` with your connected display names, listed by
+Replace the display names with your preferred connectors, listed by
 `i3-msg -t get_outputs` or `swaymsg -t get_outputs`. Remove the `output` lines to
-let the compositor choose. This example puts new `code` and `dev` workspaces
-on one display and `browser` on another. Existing workspaces keep their display
+let the compositor choose. The first connected display in each array wins.
+This example prefers `DP-1` for new `code` and `dev` workspaces and `HDMI-1` for
+`browser`, with `eDP-1` as a fallback for each. If none are connected, the
+compositor chooses. Existing workspaces keep their display
 unless you use `--sync`.
 
 Now run:
@@ -417,25 +419,27 @@ Workspaces are destinations, not marked Layouter objects. Neither ordinary runs
 nor `--sync` rename them. Existing windows stay where they are during ordinary
 runs; `--sync` returns managed windows to their declared destinations.
 
-Set `output` to a display's exact connector name to choose where a new workspace
-opens:
+Set `output` to an ordered array of exact display connector names to choose
+where a new workspace opens. Layouter uses the first connected display:
 
 ```toml
 [[workspace]]
 number = 2
 name = "code"
-output = "DP-1"
+output = ["DP-1", "eDP-1"]
 ```
 
 List connector names with `i3-msg -t get_outputs` or `swaymsg -t get_outputs`.
-Each workspace can target a different output. Without `output`, the compositor
-chooses the display as usual.
+A single name, such as `output = "DP-1"`, is also accepted. Each workspace can
+have its own preferences. With no matching connected display, an empty array,
+or no `output` setting, Layouter leaves display placement to the compositor.
 
 Ordinary runs apply this setting only when activating a missing workspace and
 preserve the display of existing workspaces. Use `--sync` to move an existing
 workspace to its configured output. This moves the entire workspace, including
-unmanaged windows on it. `--dry-run` reports required output placement; an
-unavailable output produces an error when placement is needed (or during sync).
+unmanaged windows on it. If none of the preferred displays are connected, sync
+leaves the workspace on its current display. `--dry-run` reports only output
+moves that have an available destination.
 `--check` validates the setting without requiring a connected display.
 
 ## Reconciliation and synchronization

@@ -365,42 +365,41 @@ class Compositor(AbstractContextManager):
         number = self._workspace_number(workspace.name)
         return f"number {number}" if number is not None else quote(workspace.name)
 
-    def _output_matches(self, workspace: Node, live: dict, tree: dict) -> bool:
-        return any(item.get("type") == "output" and item.get("name") == workspace.output
+    def _output_matches(self, output: str, live: dict, tree: dict) -> bool:
+        return any(item.get("type") == "output" and item.get("name") == output
                    for item in path_to(tree, int(live["id"])))
 
-    def _validate_output(self, workspace: Node, tree: dict):
-        if workspace.output and not any(item.get("type") == "output"
-                                        and item.get("name") == workspace.output
-                                        and item.get("name") != "__i3"
-                                        for item in walk(tree)):
-            raise BackendError(f"Workspace {workspace.name}: output {workspace.output!r} is not connected")
+    def _preferred_output(self, workspace: Node, tree: dict) -> str | None:
+        """Choose the first available display, or let the compositor keep its placement."""
+        connected = {item.get("name") for item in walk(tree)
+                     if item.get("type") == "output" and item.get("name") != "__i3"}
+        return next((output for output in workspace.output if output in connected), None)
 
     def output_plan(self, workflow: Workflow, *, sync: bool = False) -> list[tuple[str, str]]:
-        """Validate and report display placement without changing focus or desktop state."""
+        """Report display placement without changing focus or desktop state."""
         tree = self.tree()
         result = []
         for workspace in self._managed_workspaces(workflow):
-            if not workspace.output:
+            output = self._preferred_output(workspace, tree)
+            if output is None:
                 continue
             live = self.resolve_node(workflow, workspace, tree)
             if live is None or sync:
-                self._validate_output(workspace, tree)
-                if live is None or not self._output_matches(workspace, live, tree):
-                    result.append((workspace.id, f"workspace output {workspace.output}"))
+                if live is None or not self._output_matches(output, live, tree):
+                    result.append((workspace.id, f"workspace output {output}"))
         return result
 
     def _place_workspace_output(self, workspace: Node, live: dict):
         if not workspace.output:
             return
         tree = self.tree()
-        self._validate_output(workspace, tree)
-        if self._output_matches(workspace, live, tree):
+        output = self._preferred_output(workspace, tree)
+        if output is None or self._output_matches(output, live, tree):
             return
         self.command(f"workspace --no-auto-back-and-forth {quote(live['name'])}; "
-                     f"move workspace to output {quote(workspace.output)}")
-        if not self._output_matches(workspace, live, self.tree()):
-            raise BackendError(f"Could not move workspace {live['name']} to output {workspace.output}")
+                     f"move workspace to output {quote(output)}")
+        if not self._output_matches(output, live, self.tree()):
+            raise BackendError(f"Could not move workspace {live['name']} to output {output}")
 
     def _ensure_workspace(self, workflow: Workflow, node: Node) -> dict:
         """Activate the ordinary destination if absent; never mark or rename it."""
@@ -408,7 +407,6 @@ class Compositor(AbstractContextManager):
         workspace = self._workspace(workflow, node)
         live = self.resolve_node(workflow, workspace, self.tree())
         if live is None:
-            self._validate_output(workspace, self.tree())
             self.command(f"workspace --no-auto-back-and-forth {self._workspace_argument(workspace)}")
             live = self.resolve_node(workflow, workspace, self.tree())
             if live is None:

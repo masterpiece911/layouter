@@ -1,4 +1,4 @@
-# Replace output names with your connected displays, or omit output to use compositor defaults.
+# Output arrays list preferred displays in order; if none are connected, use compositor defaults.
 session = "morning-{microfrontend}"
 focus = "code"
 
@@ -8,7 +8,7 @@ microfrontend = { position = 0, required = true }
 [[workspace]]
 number = 2
 name = "code"
-output = "DP-1"
+output = ["DP-1", "eDP-1"]
 
   [[workspace.window]]
   name = "zed"
@@ -17,7 +17,7 @@ output = "DP-1"
 [[workspace]]
 number = 3
 name = "dev"
-output = "DP-1"
+output = ["DP-1", "eDP-1"]
 layout = "splith"
 
   [[workspace.kitty]]
@@ -55,7 +55,7 @@ layout = "splith"
 [[workspace]]
 number = 4
 name = "browser"
-output = "HDMI-1"
+output = ["HDMI-1", "eDP-1"]
 
   [[workspace.window]]
   name = "browser"

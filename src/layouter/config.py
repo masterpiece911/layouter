@@ -54,6 +54,14 @@ def line(value, where: str) -> str:
     return value
 
 
+def outputs(value, where: str) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (line(value, where),)
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: expected a display name or array of display names")
+    return tuple(line(item, f"{where}[{index}]") for index, item in enumerate(value))
+
+
 def boolean(value, where: str) -> bool:
     if type(value) is not bool:
         raise ConfigError(f"{where}: expected a boolean")
@@ -441,7 +449,7 @@ def resolve(config: dict, project: Path, name: str = "default",
             options=options, session_file=session_file,
             wm_class=line(n["class"], nw + ".class") if "class" in n else None,
             size=float(size) if size is not None else None,
-            output=line(n["output"], nw + ".output") if "output" in n else None,
+            output=outputs(n["output"], nw + ".output") if "output" in n else (),
         ))
     by_id = {n.id: n for n in nodes}
     for node in nodes:

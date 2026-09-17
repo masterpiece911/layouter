@@ -32,8 +32,15 @@ class ConfigTests(unittest.TestCase):
         source.write_text('[[workspace]]\nname="dev"\noutput="DP-1"\n')
         data, sources = load(self.project, selected=str(source))
         workflow = resolve(data, self.project, sources=sources)
-        self.assertEqual(workflow.nodes[0].output, "DP-1")
-        for invalid in ("", 42, ["DP-1"], "DP-1\n"):
+        self.assertEqual(workflow.nodes[0].output, ("DP-1",))
+        source.write_text('[[workspace]]\nname="dev"\noutput=["DP-1", "{project_name}"]\n')
+        data, sources = load(self.project, selected=str(source))
+        workflow = resolve(data, self.project, sources=sources)
+        self.assertEqual(workflow.nodes[0].output, ("DP-1", self.project.name))
+        data = basic()
+        data["workflows"]["default"]["nodes"]["code"]["output"] = []
+        self.assertEqual(resolve(data, self.project).by_id["code"].output, ())
+        for invalid in ("", 42, [42], [""], ["DP-1\n"], {}, "DP-1\n"):
             data = basic()
             data["workflows"]["default"]["nodes"]["code"]["output"] = invalid
             with self.subTest(output=invalid), self.assertRaises(ConfigError):

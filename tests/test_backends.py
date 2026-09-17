@@ -823,7 +823,7 @@ class WorkspaceOutputTests(unittest.TestCase):
     def setUp(self):
         self.workflow = kitty_workflow(Path('/tmp'))
         self.workflow = replace(self.workflow, nodes=tuple(
-            replace(n, output='DP-1') if n.kind == 'workspace' else n
+            replace(n, output=('DP-1',)) if n.kind == 'workspace' else n
             for n in self.workflow.nodes))
         self.workspace = self.workflow.by_id['work']
         self.live = {'id': 3, 'type': 'workspace', 'name': 'test', 'nodes': []}
@@ -864,14 +864,35 @@ class WorkspaceOutputTests(unittest.TestCase):
         self.assertEqual(self.backend.sync(self.workflow), [])
         self.backend.command.assert_not_called()
 
-    def test_unavailable_output_fails_before_mutation(self):
+    def test_unavailable_output_keeps_default_placement(self):
         self.tree['nodes'].remove(self.right)
-        with self.assertRaisesRegex(BackendError, 'not connected'):
-            self.backend.output_plan(self.workflow, sync=True)
-        self.left['nodes'].clear()
-        with self.assertRaisesRegex(BackendError, 'not connected'):
-            self.backend._ensure_workspace(self.workflow, self.workspace)
+        self.assertEqual(self.backend.output_plan(self.workflow, sync=True), [])
+        self.backend._place_workspace_output(self.workspace, self.live)
         self.backend.command.assert_not_called()
+        self.left['nodes'].clear()
+        self.backend._ensure_workspace(self.workflow, self.workspace)
+        self.assertEqual(self.left['nodes'], [self.live])
+        self.backend.command.assert_called_once_with('workspace --no-auto-back-and-forth "test"')
+
+    def test_output_preferences_use_first_connected_display(self):
+        for preferences, expected in (
+                (('missing', 'DP-1', 'eDP-1'), 'DP-1'),
+                (('eDP-1', 'DP-1'), 'eDP-1'),
+                (('missing',), None),
+                ((), None)):
+            with self.subTest(preferences=preferences):
+                workspace = replace(self.workspace, output=preferences)
+                self.assertEqual(self.backend._preferred_output(workspace, self.tree), expected)
+
+    def test_fallback_display_is_planned_and_used(self):
+        self.workspace = replace(self.workspace, output=('missing', 'DP-1', 'eDP-1'))
+        self.workflow = replace(self.workflow, nodes=tuple(
+            self.workspace if n.kind == 'workspace' else n for n in self.workflow.nodes))
+        self.assertEqual(self.backend.output_plan(self.workflow, sync=True),
+                         [('work', 'workspace output DP-1')])
+        self.backend._place_workspace_output(self.workspace, self.live)
+        self.assertEqual(self.right['nodes'], [self.live])
+        self.assertEqual(self.backend.output_plan(self.workflow, sync=True), [])
 
     def test_unsuccessful_move_is_detected(self):
         self.backend.command.side_effect = None
