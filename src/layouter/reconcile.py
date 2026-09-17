@@ -184,8 +184,7 @@ class Reconciler:
             backend = self.kitties[root]
             backend.focus(target, self.i3, backend.inspect(self.i3.tree()))
         else:
-            live = (self.i3.resolve_node(self.workflow, node, self.i3.tree())
-                    if node.kind == "workspace" else self.i3.find(self.workflow.mark(root)))
+            live = self.i3.resolve_focus(self.workflow, node, self.i3.tree())
             if not live:
                 raise BackendError(f"Focus destination {target} does not exist")
             self.i3.focus(live["id"])

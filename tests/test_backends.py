@@ -18,7 +18,7 @@ from layouter.errors import AmbiguousState, BackendError
 from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEADER, MAGIC, command_layout, marked, matches, quote, walk
 from layouter.kitty import Kitty, Snapshot, SocketNotReady
 from layouter.runtime import Runtime
-from layouter.reconcile import check_executable
+from layouter.reconcile import Reconciler, check_executable
 
 
 def supports_unix_sockets():
@@ -734,6 +734,26 @@ class PlacementTests(unittest.TestCase):
         harness.commands.clear()
         self.assertEqual(harness.backend.sync(self.workflow), [])
         self.assertEqual(harness.commands, [])
+
+    def test_focus_follows_nested_virtual_containers(self):
+        for materialized in (False, True):
+            with self.subTest(materialized=materialized):
+                nodes = self.workflow.by_id
+                workflow = replace(self.workflow, focus="outer", nodes=(
+                    nodes["work"], nodes["outer"], nodes["inner"], nodes["backend"]))
+                leaf = {"id": 10, "type": "con", "window": 110, "nodes": [],
+                        "marks": [workflow.mark("backend")]}
+                state = self.state()
+                if materialized:
+                    state["nodes"][0]["nodes"] = [{
+                        "id": 20, "type": "con", "layout": "splith", "nodes": [leaf],
+                        "marks": [workflow.mark("outer")]}]
+                else:
+                    state["nodes"][0]["nodes"] = [leaf]
+                harness = TreeHarness(workflow, state)
+                Reconciler(workflow, harness.backend, Runtime(Path(self.temp.name))).focus()
+                self.assertEqual(harness.focused, 20 if materialized else 10)
+                self.assertEqual(harness.commands, [f"[con_id={harness.focused}] focus"])
 
     def test_sync_rebuilds_existing_managed_tree_and_preserves_unmanaged_windows(self):
         state = self.state()

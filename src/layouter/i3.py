@@ -499,6 +499,13 @@ class Compositor(AbstractContextManager):
                 current = by_id[current.parent]
         return [node for node in workflow.nodes if node.parent == parent and node.id in active]
 
+    def resolve_focus(self, workflow: Workflow, node: Node, tree: dict) -> dict | None:
+        """Resolve a focus target, following flattened single-child containers."""
+        if node.kind == "container":
+            root = self._root(workflow, node, tree)
+            return root[0] if root else None
+        return self.resolve_node(workflow, node, tree)
+
     def _root(self, workflow: Workflow, node: Node, tree: dict) -> tuple[dict, str] | None:
         """Resolve a declared subtree to its live root, tolerating flattened singleton containers."""
         live = marked(tree, workflow.mark(node.id))
