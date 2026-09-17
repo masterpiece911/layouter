@@ -24,7 +24,7 @@ def literal(value: str) -> str:
 
 
 def dumps(document: dict, warnings: list[str] = ()) -> str:
-    """Serialize the workflow subset of TOML, without a runtime dependency."""
+    """Serialize workflow TOML with two-space indentation for nested tables."""
     def value(item):
         if isinstance(item, str):
             return json.dumps(item, ensure_ascii=False)
@@ -44,16 +44,18 @@ def dumps(document: dict, warnings: list[str] = ()) -> str:
     lines.extend("# " + warning.replace("\n", " ").replace("\r", " ") for warning in warnings)
 
     def table(data, path):
+        indent = "  " * max(0, len(path) - 1)
         arrays = {}
         for key, item in data.items():
             if isinstance(item, list) and item and all(isinstance(v, dict) for v in item):
                 arrays[key] = item
             else:
-                lines.append(value(key) + " = " + value(item))
+                lines.append(indent + value(key) + " = " + value(item))
         for key, items in arrays.items():
             child_path = [*path, key]
+            child_indent = "  " * len(path)
             for item in items:
-                lines.extend(["", "[[" + ".".join(value(k) for k in child_path) + "]]"])
+                lines.extend(["", child_indent + "[[" + ".".join(value(k) for k in child_path) + "]]"])
                 table(item, child_path)
     table(document, [])
     return "\n".join(lines) + "\n"

@@ -577,7 +577,8 @@ for elements you intend to move between containers.
 
 Save-layout validates the result before replacing the source and keeps the
 original bytes in `<file>.bak` (then `.bak.1`, `.bak.2`, etc.). It rewrites TOML
-formatting; original comments remain in the backup. Neither saving mode changes
+formatting with two spaces per nested table level; original comments remain in
+the backup. Neither saving mode changes
 the running desktop or combines with `--sync`, `--sync-displays`, `--no-focus`,
 or another CLI mode.
 

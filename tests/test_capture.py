@@ -47,7 +47,11 @@ class CaptureTests(unittest.TestCase):
         with patch("layouter.capture.process_command", return_value=(["editor", "{literal} 😀"], "/tmp")):
             result, warnings = capture(tree, "default", self.project, self.runtime)
         text = dumps(result, warnings)
+        self.assertIn('\n[["workspace"]]\n"name" = "dev"\n', text)
+        self.assertIn('\n  [["workspace"."container"]]\n  "name" = "group"\n', text)
+        self.assertIn('\n    [["workspace"."container"."window"]]\n    "name" = ', text)
         parsed = tomllib.loads(text)
+        self.assertEqual(parsed, result)
         workflow = self.resolve(parsed)
         self.assertEqual([n.kind for n in workflow.nodes], ["workspace", "container"])
         # Enable the reviewed launch drafts to verify mixed ordering and interpolation.
