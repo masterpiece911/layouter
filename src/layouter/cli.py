@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
             with Compositor(args.timeout or 30) as i3:
                 document, warnings = capture(i3.tree(), args.workflow, project, Runtime(), args.timeout or 30)
             content = dumps(document, warnings)
-            resolve(normalize_document(tomllib.loads(content), args.workflow), project, args.workflow)
+            resolve(normalize_document(tomllib.loads(content), args.workflow), project, args.workflow, sources=(destination,))
             write_document(destination, content)
             print(f"Captured: {destination}")
             for warning in warnings:
@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
                 document, warnings = save_layout(document, workflow, i3.tree(), i3, Runtime())
             content = dumps(document, warnings)
             resolve(normalize_document(tomllib.loads(content), args.workflow), project,
-                    args.workflow, args.workflow_args)
+                    args.workflow, args.workflow_args, sources)
             backup = write_document(source, content, original)
             print(f"Saved layout: {source} (backup: {backup})")
             for warning in warnings:

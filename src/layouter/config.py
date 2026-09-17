@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .errors import ConfigError
-from .model import Node, Pane, Tab, Workflow, digest
+from .model import Node, Pane, Tab, Workflow, digest, session_identity
 from .schema import normalize_document
 
 ID = re.compile(r"[A-Za-z0-9_-]+\Z")
@@ -354,6 +354,7 @@ def resolve(config: dict, project: Path, name: str = "default",
             supplied: list[str] | None = None, sources: tuple[Path, ...] = ()) -> Workflow:
     """Build a validated Workflow with expanded values, stable IDs, and checked tree references."""
     project = project.expanduser().resolve()
+    sources = tuple(path.expanduser().resolve() for path in sources)
     if not project.is_dir():
         raise ConfigError(f"Project directory does not exist: {project}")
     data = workflow_data(config, name)
@@ -361,7 +362,7 @@ def resolve(config: dict, project: Path, name: str = "default",
     arguments = bind(data, supplied or [])
     context = {**arguments, "project": str(project), "project_name": project.name, "workflow": name}
     session = line(expand(text(data.get("session", "{workflow}"), "session"), context, "session"), "session")
-    sid = digest(str(project), session)
+    sid = session_identity(name, session, sources)
     context.update(session=session, session_id=sid)
     base_cwd = cwd(expanded(data.get("cwd", "{project}"), context, "cwd"), project, "cwd")
     base_env = env(expanded(data.get("env", {}), context, "env"), {}, "env")

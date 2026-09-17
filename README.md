@@ -157,7 +157,8 @@ layouter --check morning garden
 
 Unless `-C` is present, the project is the current directory. `-C DIR`
 selects the project directory before Layouter resolves the
-workflow, relative paths, working directories, and session identity.
+workflow, relative paths, and working directories. It affects session identity
+only when the `session` template explicitly includes the project.
 
 For `layouter morning`, Layouter first looks for `.dev/morning.toml` in the selected
 project. If that file is absent, it looks for
@@ -201,11 +202,27 @@ command = ["sh", "-c", "tool {microfrontend:q} | formatter"]
 to its tabs and panes. Relative paths always start at the canonical project
 directory, including when the project was selected with `-C`.
 
-The canonical project directory and expanded `session` string form the stable
-session identity. Declaration names extend that identity for individual
-elements. That is why `morning-garden` and `morning-meadow` can coexist, while
-two invocations whose expanded session is simply `morning` deliberately refer to
-the same live workspace.
+The canonical workflow-file path and expanded `session` string form the stable
+session identity. Declaration names extend that identity for individual elements.
+The same global TOML and session refer to the same running layout whether launched
+from a terminal, a launcher such as Vicinae, or a different directory. Symlinks to
+the same file share identity; separate files do not. Editing a file in place does
+not change its identity unless its expanded `session` changes. Moving or copying
+the file to another canonical path creates a different identity.
+
+To deliberately create a separate instance per project, express that in TOML:
+
+```toml
+session = "dev-{project}"
+```
+
+Use `{project}` for the full canonical directory; `{project_name}` can collide
+between directories with the same basename. `layouter -C /path/to/project a`
+and running `layouter a` inside that directory are equivalent. Project paths
+still determine cwd, relative paths, and placeholder values for newly created
+elements. Existing processes keep their original cwd and environment. For a
+shared global workflow that should always launch missing elements in one place,
+set its `cwd` explicitly as well.
 
 Workspaces, GUI windows, kitty OS windows, containers, and tabs use `name` as
 their declaration identity. A pane can use its `title` as both identity and
@@ -541,7 +558,11 @@ This updates the selected source file using the session identified by the
 supplied workflow arguments. It saves managed tiled windows' workspace placement,
 container nesting, relative order, sizes, and workspace outputs/layouts. New
 structural containers are added as needed; unmanaged applications are not added.
-Missing or disabled declarations are retained. Commands, working directories,
+Missing or disabled declarations are retained, including closed Kitty panes; a
+later normal run recreates them. If no declared application windows match,
+save-layout fails without rewriting the source or making a backup. Launch and
+save using the same canonical workflow file and expanded session. The working
+directory only affects identity if the session explicitly includes it. Commands, working directories,
 environments, session templates, and argument declarations remain intact.
 Changes to a parameterized workflow apply to that workflow file for all argument
 values, with layout captured from the selected session.

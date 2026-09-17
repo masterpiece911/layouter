@@ -206,6 +206,52 @@ class CaptureTests(unittest.TestCase):
         mock.command.assert_not_called()
         self.assertTrue((self.project / ".dev/test.toml.bak").exists())
 
+    def test_save_with_no_matching_session_keeps_source_bytes_and_no_backup(self):
+        source = self.project / "global.toml"
+        original = ('# Preserve this comment and formatting.\nsession = "simple"\n'
+                    '[[workspace]]\nname = "dev"\n'
+                    '[[workspace.kitty]]\nname = "term"\n'
+                    '[[workspace.kitty.pane]]\ntitle = "main"\n')
+        source.write_text(original)
+        document = tomllib.loads(original)
+        other_source = self.project / "other.toml"
+        other_source.write_text(original)
+        launched = resolve(normalize_document(document), self.project, sources=(other_source,))
+        other_project = self.project / "other"
+        other_project.mkdir()
+        mock = MagicMock()
+        mock.__enter__.return_value = mock
+        mock.tree.return_value = desktop([window(5, launched, "term")])
+        mock.resolve_node.side_effect = self.compositor.resolve_node
+        with patch("layouter.cli.Compositor", return_value=mock), patch("sys.stderr", new_callable=io.StringIO) as errors:
+            result = main(["-C", str(other_project), "--file", str(source), "--save-layout"])
+        self.assertEqual(result, 2)
+        self.assertIn("No managed application windows matched", errors.getvalue())
+        self.assertIn(str(other_project), errors.getvalue())
+        self.assertIn("same workflow file", errors.getvalue())
+        self.assertEqual(source.read_text(), original)
+        self.assertFalse(list(self.project.glob("*.bak*")))
+        mock.command.assert_not_called()
+
+    def test_closed_kitty_pane_reports_absence_without_losing_declaration(self):
+        doc = {"workspace": [{"name": "dev", "kitty": [{"name": "term", "pane": [
+            {"title": "main", "command": ["sh"]},
+            {"title": "side-a", "command": ["tool-a"]},
+            {"title": "side-b", "command": ["tool-b"]}]}]}]}
+        workflow = self.resolve(doc)
+        for closed in ("side-a", "side-b"):
+            with self.subTest(closed=closed):
+                panes = [{"id": i, "user_vars": {"layouter_pane": workflow.pane_key("term", "dev", pid)}}
+                         for i, pid in enumerate(("main", "side-a", "side-b")) if pid != closed]
+                snapshot = Snapshot(True, ({"id": 1, "tabs": [
+                    {"id": 2, "title": "dev", "layout": "tall", "windows": panes}]},))
+                with patch("layouter.capture.Kitty.inspect", return_value=snapshot):
+                    result, warnings = save_layout(doc, workflow, desktop([window(5, workflow, "term")]), self.compositor, self.runtime)
+                self.assertEqual(self.resolve(result).by_id["term"].tabs[0].panes,
+                                 workflow.by_id["term"].tabs[0].panes)
+                self.assertTrue(any(f"term.dev.{closed}: pane absent" in w for w in warnings))
+                self.assertFalse(any("term: absent" in w for w in warnings))
+
     def test_order_validation(self):
         for invalid in [-1, True, "first", 1.5]:
             with self.subTest(invalid=invalid), self.assertRaises(ConfigError):

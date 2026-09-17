@@ -14,6 +14,16 @@ def digest(*parts: str) -> str:
     return hashlib.sha256(data.encode()).hexdigest()[:24]
 
 
+def session_identity(name: str, session: str, sources: tuple[Path, ...] = ()) -> str:
+    """Scope a session to its canonical declaration file, never the launch directory.
+
+    In-memory workflows have no file; their workflow name is the explicit scope.
+    File-backed callers must pass the selected source, including during validation.
+    """
+    scope = str(sources[0].expanduser().resolve()) if sources else name
+    return digest("workflow-file-v1" if sources else "workflow-memory-v1", scope, session)
+
+
 @dataclass(frozen=True)
 class Pane:
     """A terminal process declaration, including identity and initial placement preferences."""
@@ -74,8 +84,8 @@ class Workflow:
 
     @property
     def session_id(self) -> str:
-        """Identify the expanded session within its canonical project directory."""
-        return digest(str(self.project), self.session)
+        """Identify the declaration file and expanded session independently of cwd."""
+        return session_identity(self.name, self.session, self.sources)
 
     def element_id(self, node: str) -> str:
         """Scope a compositor element identity to this session."""

@@ -269,12 +269,15 @@ def save_layout(document, workflow, tree, compositor, runtime):
     raw, parents, kinds = raw_index(document)
     warnings = []
     live_raw, live_nodes = {}, {}
+    matched_leaves = 0
     for node in workflow.nodes:
         live = compositor.resolve_node(workflow, node, tree)
         if live is None:
             if node.kind in {"app", "kitty"}:
                 warnings.append(f"{node.id}: absent; kept its declaration and placement.")
             continue
+        if node.kind in {"app", "kitty"}:
+            matched_leaves += 1
         ancestors = path_to(tree, live["id"])
         if any(a.get("type") == "floating_con" or a.get("name") == "__i3_scratch"
                or any(c.get("id") == live["id"] for c in a.get("floating_nodes", [])) for a in ancestors):
@@ -284,6 +287,14 @@ def save_layout(document, workflow, tree, compositor, runtime):
             raise ConfigError("Multiple declarations resolve to the same live container; refusing to guess")
         live_raw[live["id"]] = raw[node.id]
         live_nodes[live["id"]] = node
+
+    if workflow.leaves and not matched_leaves:
+        raise ConfigError(
+            f"No managed application windows matched session {workflow.session!r} "
+            f"for project {workflow.project} (id={workflow.session_id}); workflow was not saved. "
+            "Use the same workflow file and expanded session as at launch, "
+            "and check that the workflow is running."
+        )
 
     # Only reconstruct paths that lead to a known, live application.
     needed = {a["id"] for live_id, node in live_nodes.items() if node.kind in {"app", "kitty"}
@@ -363,7 +374,9 @@ def save_layout(document, workflow, tree, compositor, runtime):
             order = {}
             for pane in tab.panes:
                 current = snapshot.pane(workflow.pane_key(node.id, tab.id, pane.id))
-                if current and current.tab["id"] != live_tab["id"]:
+                if current is None:
+                    warnings.append(f"{node.id}.{tid}.{pane.id}: pane absent; retained its declaration for recreation.")
+                elif current.tab["id"] != live_tab["id"]:
                     warnings.append(f"{node.id}.{tid}: pane moved between tabs; membership retained to preserve identity.")
                 elif current:
                     order[pane.id] = positions[current.window["id"]]
@@ -385,5 +398,5 @@ def save_layout(document, workflow, tree, compositor, runtime):
     new_ids = set(normalized["workflows"][workflow.name].get("nodes", {}))
     if not original_ids <= new_ids:
         raise ConfigError("This move changes a location-derived identity. Give moved elements simple names before saving.")
-    resolve(normalized, workflow.project, workflow.name, list(workflow.arguments.values()))
+    resolve(normalized, workflow.project, workflow.name, list(workflow.arguments.values()), workflow.sources)
     return document, warnings
