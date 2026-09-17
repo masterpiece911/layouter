@@ -18,6 +18,7 @@ from layouter.errors import AmbiguousState, BackendError
 from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEADER, MAGIC, command_layout, marked, matches, quote, walk
 from layouter.kitty import Kitty, Snapshot, SocketNotReady
 from layouter.runtime import Runtime
+from layouter.reconcile import check_executable
 
 
 def supports_unix_sockets():
@@ -217,6 +218,20 @@ class KittyTests(unittest.TestCase):
     def tree(self, present=False):
         return {"id": 0, "nodes": ([{"id": 1, "window": 22,
             "marks": [self.workflow.mark("term")], "window_properties": {"class": self.kitty.wm_class}}] if present else [])}
+
+    def test_remote_uses_launch_environment(self):
+        bindir = self.path / "bin"
+        bindir.mkdir()
+        executable = bindir / "layouter-test-kitty"
+        executable.write_text('#!/bin/sh\nprintf "%s\\n%s\\n" "$LAYOUTER_TEST_VALUE" "$LAYOUTER_TEST_INHERITED"\n')
+        executable.chmod(0o755)
+        node = replace(self.node, executable=executable.name,
+                       env={"PATH": str(bindir), "LAYOUTER_TEST_VALUE": "configured"})
+        check_executable((node.executable,), node.cwd, node.env)
+        with patch.dict(os.environ, {"LAYOUTER_TEST_VALUE": "inherited",
+                                     "LAYOUTER_TEST_INHERITED": "preserved"}):
+            kitty = Kitty(self.workflow, node, self.runtime)
+            self.assertEqual(kitty.remote("ls").splitlines(), ["configured", "preserved"])
 
     def state(self):
         tab = self.node.tabs[0]

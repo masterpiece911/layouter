@@ -94,7 +94,8 @@ class Kitty:
                 "--use-password", "never", *args]
         try:
             result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True,
-                                    text=True, timeout=self.workflow.timeout)
+                                    text=True, timeout=self.workflow.timeout,
+                                    env={**os.environ, **self.node.env})
         except subprocess.TimeoutExpired as exc:
             raise BackendError(f"kitty {args[0]} timed out; its result is unknown. Inspect before retrying") from exc
         except OSError as exc:
