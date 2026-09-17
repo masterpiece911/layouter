@@ -13,7 +13,7 @@ from .errors import ConfigError
 from .model import digest
 
 ID = re.compile(r"[A-Za-z0-9_-]+\Z")
-WORKFLOW_FIELDS = {"session", "args", "cwd", "env", "focus", "description", "workspace"}
+WORKFLOW_FIELDS = {"session", "args", "cwd", "env", "focus", "description", "workspace", "sync_displays"}
 CHILDREN = {"window", "kitty", "container"}
 IMPLICIT_TAB = "dev"
 

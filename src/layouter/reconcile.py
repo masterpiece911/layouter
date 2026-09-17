@@ -70,7 +70,7 @@ class Reconciler:
         snapshots = {key: kitty.inspect(tree) for key, kitty in self.kitties.items()}
         return snapshots
 
-    def plan(self, *, sync: bool = False) -> list[Action]:
+    def plan(self, *, sync: bool = False, sync_displays: bool = False) -> list[Action]:
         """Describe required creation, adoption, and optional corrections without mutating the desktop."""
         snapshots = self.inspect()
         result = []
@@ -93,9 +93,10 @@ class Reconciler:
                     for pane in tab.panes:
                         present = state.pane(self.workflow.pane_key(node.id, tab.id, pane.id))
                         result.append(Action("keep" if present else "create", f"{node.id}.{tab.id}.{pane.id}", "pane"))
-        if not sync and any(node.output for node in self.workflow.nodes):
-            for target, detail in self.i3.output_plan(self.workflow):
-                result.append(Action("create", target, detail))
+        sync_displays = sync_displays or self.workflow.sync_displays
+        if not sync and (sync_displays or any(node.output for node in self.workflow.nodes)):
+            for target, detail in self.i3.output_plan(self.workflow, sync=sync_displays):
+                result.append(Action("sync" if sync_displays else "create", target, detail))
         if sync:
             for target, detail in self.i3.sync_plan(self.workflow):
                 result.append(Action("sync", target, detail))
@@ -190,9 +191,10 @@ class Reconciler:
             self.i3.focus(live["id"])
 
     def run(self, *, no_focus: bool = False, preflight: bool = True,
-            sync: bool = False) -> list[Action]:
+            sync: bool = False, sync_displays: bool = False) -> list[Action]:
         """Fill gaps, optionally synchronize, and restore original focus when required or on failure."""
-        plan = self.plan(sync=sync)
+        sync_displays = sync_displays or self.workflow.sync_displays
+        plan = self.plan(sync=sync, sync_displays=sync_displays)
         if preflight:
             self.preflight(plan)
         original = self.i3.focused()
@@ -213,6 +215,9 @@ class Reconciler:
                 for container in self.i3.finalize(self.workflow) or []:
                     self.record("preserve", container.id,
                                 "declared nesting skipped because rebuilding it would move an existing element")
+                if sync_displays:
+                    for target, detail in self.i3.sync_displays(self.workflow):
+                        self.record("sync", target, detail)
             if self.workflow.focus and not no_focus:
                 self.focus()
             succeeded = True

@@ -874,6 +874,20 @@ class WorkspaceOutputTests(unittest.TestCase):
         self.assertEqual(self.left['nodes'], [self.live])
         self.backend.command.assert_called_once_with('workspace --no-auto-back-and-forth "test"')
 
+    def test_display_only_sync_moves_workspace_without_rebuilding(self):
+        self.live['nodes'].append({'id': 4, 'type': 'con', 'window': 44})
+        self.backend.sync = Mock(side_effect=AssertionError("full sync must not run"))
+        self.assertEqual(self.backend.sync_displays(self.workflow),
+                         [('work', 'workspace output DP-1')])
+        self.assertEqual(self.right['nodes'], [self.live])
+        self.backend.command.reset_mock()
+        self.assertEqual(self.backend.sync_displays(self.workflow), [])
+        self.backend.command.assert_not_called()
+        self.tree['nodes'].remove(self.right)
+        self.left['nodes'].append(self.live)
+        self.assertEqual(self.backend.sync_displays(self.workflow), [])
+        self.backend.command.assert_not_called()
+
     def test_output_preferences_use_first_connected_display(self):
         for preferences, expected in (
                 (('missing', 'DP-1', 'eDP-1'), 'DP-1'),

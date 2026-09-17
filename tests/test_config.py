@@ -27,6 +27,27 @@ class ConfigTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name)
 
+    def test_workflow_sync_displays(self):
+        source = self.project / "workflow.toml"
+        source.write_text('sync_displays=true\n[[workspace]]\nname="dev"\n')
+        data, sources = load(self.project, selected=str(source))
+        self.assertTrue(resolve(data, self.project, sources=sources).sync_displays)
+        self.assertFalse(resolve(basic(), self.project).sync_displays)
+        for invalid in ("true", 1, [], None):
+            data = basic()
+            data["workflows"]["default"]["sync_displays"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaises(ConfigError):
+                resolve(data, self.project)
+
+    def test_sync_displays_cli_option(self):
+        args = parser().parse_args(["--dry-run", "--sync-displays", "morning"])
+        self.assertTrue(args.sync_displays)
+        self.assertFalse(args.sync)
+        self.assertTrue(args.dry_run)
+        for mode in ("--capture", "--save-layout"):
+            with self.subTest(mode=mode), patch("sys.stderr", new_callable=io.StringIO):
+                self.assertEqual(main([mode, "--sync-displays"]), 2)
+
     def test_workspace_output(self):
         source = self.project / "workflow.toml"
         source.write_text('[[workspace]]\nname="dev"\noutput="DP-1"\n')
@@ -380,6 +401,23 @@ name = "special"
                 self.assertEqual(main(["-C", str(self.project), "--list"]), 0)
             backend.assert_not_called()
 
+    def test_cli_forwards_display_sync_to_run_and_plan(self):
+        local = self.project / ".dev" / "default.toml"
+        local.parent.mkdir()
+        local.write_text('session="display-test"\n')
+        with patch("layouter.cli.Compositor") as compositor, \
+             patch("layouter.cli.Reconciler") as reconciler, \
+             patch("layouter.cli.Runtime"):
+            compositor.return_value.__enter__.return_value.path = "test-socket"
+            reconciler.return_value.plan.return_value = []
+            self.assertEqual(main(["-C", str(self.project), "--sync-displays"]), 0)
+            reconciler.return_value.run.assert_called_once_with(
+                no_focus=False, sync=False, sync_displays=True)
+            reconciler.return_value.run.reset_mock()
+            self.assertEqual(main(["-C", str(self.project), "--dry-run", "--sync-displays"]), 0)
+            reconciler.return_value.plan.assert_called_once_with(sync=False, sync_displays=True)
+            reconciler.return_value.run.assert_not_called()
+
     def test_cli_forwards_sync_to_reconciler(self):
         local = self.project / ".dev" / "default.toml"
         local.parent.mkdir()
@@ -391,7 +429,7 @@ name = "special"
             live.path = "test-socket"
             reconciler.return_value.run.return_value = []
             self.assertEqual(main(["-C", str(self.project), "--sync"]), 0)
-        reconciler.return_value.run.assert_called_once_with(no_focus=False, sync=True)
+        reconciler.return_value.run.assert_called_once_with(no_focus=False, sync=True, sync_displays=False)
 
 
 if __name__ == "__main__":

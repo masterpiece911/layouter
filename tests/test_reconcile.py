@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock
 
 from layouter.config import resolve
 from layouter.errors import AmbiguousState, BackendError
@@ -288,6 +289,38 @@ class ReconcileTests(unittest.TestCase):
         warning = next(action for action in actions if action.kind == "preserve")
         self.assertEqual(warning.target, "tools")
         self.assertIn("would move an existing element", warning.detail)
+
+    def test_display_only_sync_from_flag_or_workflow(self):
+        for configured in (False, True):
+            with self.subTest(configured=configured):
+                self.data["workflows"]["default"]["sync_displays"] = configured
+                self.build()
+                self.baseline()
+                self.i3.add("browser", wm_class="firefox")
+                self.kitty.add("tests")
+                changes = [("code", "workspace output DP-1")]
+                self.i3.output_plan = Mock(return_value=changes)
+                self.i3.sync_displays = Mock(return_value=changes)
+                self.i3.sync = Mock()
+                self.kitty.sync = Mock()
+                actions = self.reconciler.plan(sync_displays=not configured)
+                self.assertEqual([a.detail for a in actions if a.kind == "sync"],
+                                 ["workspace output DP-1"])
+                self.i3.output_plan.assert_called_once_with(self.workflow, sync=True)
+                self.i3.sync_displays.assert_not_called()
+                actions = self.reconciler.run(preflight=False, sync_displays=not configured)
+                self.i3.sync_displays.assert_called_once_with(self.workflow)
+                self.i3.sync.assert_not_called()
+                self.kitty.sync.assert_not_called()
+                self.assertEqual([a.detail for a in actions if a.kind == "sync"],
+                                 ["workspace output DP-1"])
+
+    def test_full_sync_does_not_repeat_display_only_sync(self):
+        self.baseline()
+        self.i3.sync_displays = Mock()
+        self.reconciler.run(preflight=False, sync=True, sync_displays=True)
+        self.i3.sync_displays.assert_not_called()
+        self.assertIn(("sync", "default"), self.i3.mutations)
 
     def test_sync_runs_corrective_backends_and_reports_changes(self):
         self.baseline()

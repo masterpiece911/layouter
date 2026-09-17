@@ -389,6 +389,18 @@ class Compositor(AbstractContextManager):
                     result.append((workspace.id, f"workspace output {output}"))
         return result
 
+    def sync_displays(self, workflow: Workflow) -> list[tuple[str, str]]:
+        """Reapply only display preferences to existing destination workspaces."""
+        changes = []
+        for workspace in self._managed_workspaces(workflow):
+            tree = self.tree()
+            live = self.resolve_node(workflow, workspace, tree)
+            output = self._preferred_output(workspace, tree)
+            if live is not None and output is not None and not self._output_matches(output, live, tree):
+                self._place_workspace_output(workspace, live)
+                changes.append((workspace.id, f"workspace output {output}"))
+        return changes
+
     def _place_workspace_output(self, workspace: Node, live: dict):
         if not workspace.output:
             return

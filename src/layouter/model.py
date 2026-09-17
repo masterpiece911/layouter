@@ -70,6 +70,7 @@ class Workflow:
     focus: str | None
     timeout: float
     sources: tuple[Path, ...] = ()
+    sync_displays: bool = False
 
     @property
     def session_id(self) -> str:

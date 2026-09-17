@@ -357,7 +357,7 @@ def resolve(config: dict, project: Path, name: str = "default",
     if not project.is_dir():
         raise ConfigError(f"Project directory does not exist: {project}")
     data = workflow_data(config, name)
-    keys(data, {"session", "args", "cwd", "env", "focus", "nodes", "description"}, f"workflow {name}")
+    keys(data, {"session", "args", "cwd", "env", "focus", "nodes", "description", "sync_displays"}, f"workflow {name}")
     arguments = bind(data, supplied or [])
     context = {**arguments, "project": str(project), "project_name": project.name, "workflow": name}
     session = line(expand(text(data.get("session", "{workflow}"), "session"), context, "session"), "session")
@@ -478,4 +478,5 @@ def resolve(config: dict, project: Path, name: str = "default",
     timeout = config.get("settings", {}).get("timeout", 30)
     if type(timeout) not in {int, float} or not math.isfinite(timeout) or timeout <= 0:
         raise ConfigError("settings.timeout must be a finite positive number")
-    return Workflow(project, name, session, arguments, tuple(nodes), focus, float(timeout), sources)
+    return Workflow(project, name, session, arguments, tuple(nodes), focus, float(timeout), sources,
+                    sync_displays=boolean(data.get("sync_displays", False), "sync_displays"))

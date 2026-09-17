@@ -132,7 +132,7 @@ let the compositor choose. The first connected display in each array wins.
 This example prefers `DP-1` for new `code` and `dev` workspaces and `HDMI-1` for
 `browser`, with `eDP-1` as a fallback for each. If none are connected, the
 compositor chooses. Existing workspaces keep their display
-unless you use `--sync`.
+unless you enable display synchronization.
 
 Now run:
 
@@ -434,12 +434,33 @@ A single name, such as `output = "DP-1"`, is also accepted. Each workspace can
 have its own preferences. With no matching connected display, an empty array,
 or no `output` setting, Layouter leaves display placement to the compositor.
 
-Ordinary runs apply this setting only when activating a missing workspace and
-preserve the display of existing workspaces. Use `--sync` to move an existing
-workspace to its configured output. This moves the entire workspace, including
-unmanaged windows on it. If none of the preferred displays are connected, sync
-leaves the workspace on its current display. `--dry-run` reports only output
-moves that have an available destination.
+By default, ordinary runs apply these preferences only when activating a missing
+workspace and preserve the display of existing workspaces. To reapply display
+preferences on every invocation, put this at the top of the workflow file,
+before any table headers:
+
+```toml
+sync_displays = true
+```
+
+For a single invocation, use `--sync-displays`:
+
+```sh
+layouter --dry-run --sync-displays morning garden
+layouter --sync-displays morning garden
+```
+
+Both options fill gaps as usual and move existing destination workspaces to their
+first connected preferred display, without correcting existing window placement,
+layouts, sizes, order, or kitty tabs and panes. Full `--sync` includes display
+synchronization along with its other corrections. `sync_displays` defaults to
+`false`; the flag enables it regardless of the workflow setting.
+
+A display move carries the entire workspace, including unmanaged windows on it.
+If none of the preferred displays are connected, the workspace stays on its
+current display. A workspace already on its preferred display is left alone.
+`--dry-run` respects both options and reports planned display moves without
+changing the desktop. `--no-focus` restores the original focus afterward.
 `--check` validates the setting without requiring a connected display.
 
 ## Reconciliation and synchronization
@@ -536,7 +557,8 @@ for elements you intend to move between containers.
 Save-layout validates the result before replacing the source and keeps the
 original bytes in `<file>.bak` (then `.bak.1`, `.bak.2`, etc.). It rewrites TOML
 formatting; original comments remain in the backup. Neither saving mode changes
-the running desktop or combines with `--sync`, `--no-focus`, or another CLI mode.
+the running desktop or combines with `--sync`, `--sync-displays`, `--no-focus`,
+or another CLI mode.
 
 An optional nonnegative `order` on windows, Kitty windows, and containers records
 sibling order across different child types. Lower values come first; ties retain
@@ -556,10 +578,11 @@ workflow belongs to it, including tokens beginning with `-`.
 | `--global` | Force the global workflow file |
 | `--list` | List discoverable workflows and argument signatures |
 | `--check` | Parse, expand, and validate without desktop access |
-| `--dry-run` | Inspect live state and print the plan; combines with `--sync` |
+| `--dry-run` | Inspect live state and print the plan; combines with `--sync` or `--sync-displays` |
 | `--capture` | Create a new workflow draft from the live desktop |
 | `--save-layout` | Save the live arrangement to the selected workflow, with backup |
 | `--sync` | Correct declared layout and placement of managed elements |
+| `--sync-displays` | Reapply workspace display preferences without other synchronization |
 | `--no-focus` | Restore the original compositor focus |
 | `--timeout SECONDS` | Set the IPC and discovery timeout |
 | `--version` | Print the version |

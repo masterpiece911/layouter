@@ -39,6 +39,8 @@ def parser() -> argparse.ArgumentParser:
     mode.add_argument("--save-layout", action="store_true", help="save live arrangement into an existing workflow (with backup)")
     p.add_argument("--sync", action="store_true",
                    help="correct managed placement, layouts, order, and sizes")
+    p.add_argument("--sync-displays", action="store_true",
+                   help="reapply workspace display preferences without syncing layouts")
     p.add_argument("--no-focus", action="store_true", help="restore original compositor focus after creation")
     p.add_argument("--timeout", type=float, metavar="SECONDS", help="IPC/discovery timeout per operation (default: 30)")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -60,8 +62,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ConfigError(f"Project directory does not exist: {project}")
         if args.timeout is not None and (not math.isfinite(args.timeout) or args.timeout <= 0):
             raise ConfigError("--timeout must be a finite positive number")
-        if (args.capture or args.save_layout) and (args.sync or args.no_focus):
-            raise ConfigError("--capture/--save-layout cannot be combined with --sync or --no-focus")
+        if (args.capture or args.save_layout) and (args.sync or args.sync_displays or args.no_focus):
+            raise ConfigError("--capture/--save-layout cannot be combined with --sync, --sync-displays, or --no-focus")
         if args.capture:
             identifier(args.workflow, "workflow name")
             if args.workflow_args:
@@ -130,13 +132,13 @@ def main(argv: list[str] | None = None) -> int:
         with Compositor(workflow.timeout) as i3:
             reconciler = Reconciler(workflow, i3, runtime, emit=emit)
             if args.dry_run:
-                for action in reconciler.plan(sync=args.sync):
+                for action in reconciler.plan(sync=args.sync, sync_displays=args.sync_displays):
                     emit(action)
                 return 0
             # Placement changes focus temporarily, so serialize desktop mutations
             # across different projects and session identities.
             with runtime.lock("desktop-" + digest(i3.path)):
-                reconciler.run(no_focus=args.no_focus, sync=args.sync)
+                reconciler.run(no_focus=args.no_focus, sync=args.sync, sync_displays=args.sync_displays)
         return 0
     except ConfigError as exc:
         print(f"layouter: {exc}", file=sys.stderr)
