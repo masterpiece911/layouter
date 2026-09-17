@@ -708,6 +708,18 @@ class PlacementTests(unittest.TestCase):
         self.assertIsNone(marked(harness.state, workflow.mark("tools")))
         self.assertEqual([node["id"] for node in state["nodes"][0]["nodes"]], [10, 11])
 
+    def test_empty_subtrees_do_not_block_nested_reconstruction(self):
+        empty = replace(self.workflow.by_id["outer"], id="empty", parent="outer")
+        nested = replace(empty, id="empty-nested", parent="empty")
+        self.workflow = replace(self.workflow, nodes=(*self.workflow.nodes, empty, nested))
+        harness = TreeHarness(self.workflow, self.state())
+        for key, con_id in (("frontend", 10), ("backend", 11), ("logs", 12)):
+            self.add_leaf(harness, key, con_id)
+        self.assertTrue(harness.backend.sync(self.workflow))
+        harness.commands.clear()
+        self.assertEqual(harness.backend.sync(self.workflow), [])
+        self.assertEqual(harness.commands, [])
+
     def test_sync_rebuilds_existing_managed_tree_and_preserves_unmanaged_windows(self):
         state = self.state()
         workspace = state["nodes"][0]

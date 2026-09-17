@@ -483,7 +483,21 @@ class Compositor(AbstractContextManager):
 
     @staticmethod
     def _children(workflow: Workflow, parent: str) -> list[Node]:
-        return [node for node in workflow.nodes if node.parent == parent]
+        """Return children whose declared subtrees contain enabled applications.
+
+        Saved layouts retain empty groups, but compositors cannot materialize
+        them. Keep missing applications active so they can still be recreated.
+        """
+        active = set()
+        by_id = workflow.by_id
+        for leaf in workflow.leaves:
+            current = leaf
+            while current.id not in active:
+                active.add(current.id)
+                if current.parent is None:
+                    break
+                current = by_id[current.parent]
+        return [node for node in workflow.nodes if node.parent == parent and node.id in active]
 
     def _root(self, workflow: Workflow, node: Node, tree: dict) -> tuple[dict, str] | None:
         """Resolve a declared subtree to its live root, tolerating flattened singleton containers."""

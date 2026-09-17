@@ -14,6 +14,7 @@ from layouter.i3 import Compositor
 from layouter.kitty import Snapshot
 from layouter.runtime import Runtime
 from layouter.schema import normalize_document
+from test_backends import TreeHarness
 
 
 def desktop(children=None):
@@ -139,6 +140,22 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(after.by_id["workspace-other"].layout, "tabbed")
         self.assertEqual(after.by_id["workspace-other"].output, ("DP-1",))
         self.assertIn("workspace-dev", after.by_id)
+
+    def test_saved_empty_group_does_not_trigger_sync_reconstruction(self):
+        doc = {"workspace": [{"name": "dev", "container": [{
+            "name": "group", "layout": "splitv", "window": [
+                {"name": "one", "command": ["one"]},
+                {"name": "two", "command": ["two"]}]}]}]}
+        workflow = self.resolve(doc)
+        tree = desktop([window(5, workflow, "one"), window(6, workflow, "two")])
+        saved, _ = save_layout(doc, workflow, tree, self.compositor, self.runtime)
+        after = self.resolve(tomllib.loads(dumps(saved)))
+        self.assertIn("group", after.by_id)
+        self.assertFalse(any(n.parent == "group" for n in after.nodes))
+        harness = TreeHarness(after, tree)
+        self.assertEqual(harness.backend.sync_plan(after), [])
+        self.assertEqual(harness.backend.sync(after), [])
+        self.assertEqual(harness.commands, [])
 
     def test_save_refuses_changed_location_derived_identity(self):
         doc = {"workspace": [{"name": "dev", "window": [{"name": "My editor", "command": ["editor"]}]}]}
