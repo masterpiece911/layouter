@@ -7,6 +7,8 @@ describe the workspaces, applications, terminal tabs, and terminal panes a
 project needs; Layouter inspects i3 or Sway and kitty, then creates whatever is
 missing.
 
+![Layouter creating a Linux workspace with tiled applications and terminal panes](docs/assets/demo.gif)
+
 That last part is the point. Starting a development environment should not mean
 tearing down one that is already useful. If the editor and development server
 are still running, but the test pane and browser have disappeared, the next
