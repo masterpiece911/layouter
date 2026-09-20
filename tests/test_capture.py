@@ -42,7 +42,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_save_retains_floating_declarations_even_when_manually_tiled(self):
         document = {"workspace": [{"name": "dev", "floating": {"window": [
-            {"name": "tools", "command": ["tools"]}]}}]}
+            {"name": "tools", "command": ["tools"], "x": 100, "y": 200, "width": 640, "height": 480}]}}]}
         workflow = self.resolve(document)
         for floating in (True, False):
             with self.subTest(floating=floating):

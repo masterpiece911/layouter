@@ -68,6 +68,11 @@ class Node:
     size: float | None = None
     output: tuple[str, ...] = ()
     floating: bool = False
+    position: str | None = None
+    x: int | None = None
+    y: int | None = None
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass(frozen=True)

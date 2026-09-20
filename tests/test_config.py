@@ -38,8 +38,13 @@ name = "tools"
 command = ["tools", "{project}"]
 match = {class = "Tools"}
 adopt = true
+x = -1200
+y = 40
+width = 800
+height = 600
 [[workspace.floating.kitty]]
 name = "terminal"
+width = 900
 [[workspace.floating.kitty.pane]]
 name = "shell"
 ''')
@@ -50,6 +55,9 @@ name = "shell"
         self.assertEqual(workflow.by_id["tools"].command, ("tools", str(self.project)))
         self.assertEqual(workflow.focus, "terminal.dev.shell")
         self.assertTrue(workflow.by_id["tools"].adopt)
+        self.assertEqual((workflow.by_id["tools"].x, workflow.by_id["tools"].y,
+                          workflow.by_id["tools"].width, workflow.by_id["tools"].height), (-1200, 40, 800, 600))
+        self.assertEqual(workflow.by_id["terminal"].width, 900)
         data["workflows"]["default"]["nodes"]["workspace-dev"]["enabled"] = False
         data["workflows"]["default"].pop("focus")
         self.assertEqual(resolve(data, self.project).leaves, ())
@@ -63,6 +71,33 @@ name = "shell"
         with self.assertRaisesRegex(ConfigError, "duplicate element"):
             normalize_document({"workspace": [{"name": "dev", "window": [{"name": "tool"}],
                 "floating": {"window": [{"name": "tool"}]}}]})
+
+    def test_invalid_floating_position(self):
+        for declaration in ({"position": "middle"}, {"position": ""}, {"position": 1},
+                            {"position": True}, {"position": []}, {"position": None},
+                            {"position": "center", "x": 0}, {"position": "center", "y": 0}):
+            with self.subTest(declaration=declaration), self.assertRaises(ConfigError):
+                resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+                    "window": [{"name": "tools", "command": ["tools"], **declaration}]}}]}), self.project)
+        for kind, content in (("window", {"command": ["tools"]}), ("kitty", {"pane": [{"name": "shell"}]})):
+            with self.subTest(kind=kind), self.assertRaisesRegex(ConfigError, "only to floating"):
+                resolve(normalize_document({"workspace": [{"name": "dev", kind: [
+                    {"name": "tools", "position": "center", **content}]}]}), self.project)
+
+    def test_invalid_floating_geometry(self):
+        for key in ("x", "y", "width", "height"):
+            for value in (True, 1.5, "100", [], None, 2**31, -(2**31)-1):
+                with self.subTest(key=key, value=value), self.assertRaises(ConfigError):
+                    resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+                        "window": [{"name": "tools", "command": ["tools"], key: value}]}}]}), self.project)
+            with self.subTest(tiled=key), self.assertRaisesRegex(ConfigError, "only to floating"):
+                resolve(normalize_document({"workspace": [{"name": "dev", "window": [
+                    {"name": "tools", "command": ["tools"], key: 100}]}]}), self.project)
+        for key in ("width", "height"):
+            for value in (0, -1):
+                with self.subTest(key=key, value=value), self.assertRaises(ConfigError):
+                    resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+                        "window": [{"name": "tools", "command": ["tools"], key: value}]}}]}), self.project)
 
     def test_workflow_sync_displays(self):
         source = self.project / "workflow.toml"

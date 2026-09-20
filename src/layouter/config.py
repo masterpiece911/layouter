@@ -391,10 +391,10 @@ def resolve(config: dict, project: Path, name: str = "default",
             if "layout" not in n:
                 raise ConfigError(f"{nw}: containers require a layout")
         elif kind == "app":
-            allowed |= {"parent", "command", "match", "cwd", "env", "adopt", "size", "floating"}
+            allowed |= {"parent", "command", "match", "cwd", "env", "adopt", "size", "floating", "x", "y", "width", "height", "position"}
         elif kind == "kitty":
             allowed |= {"name", "parent", "cwd", "env", "tabs", "executable", "config", "options", "session_file",
-                        "class", "size", "floating"}
+                        "class", "size", "floating", "x", "y", "width", "height", "position"}
         else:
             raise ConfigError(f"{nw}: unknown node type {kind!r}")
         keys(n, allowed, nw)
@@ -414,6 +414,22 @@ def resolve(config: dict, project: Path, name: str = "default",
                 raise ConfigError(f"{nw}.match.{key}: {exc}") from exc
         if kind == "app" and n.get("adopt", False) and not match:
             raise ConfigError(f"{nw}: adopt requires an explicit window matcher")
+        geometry = {key: n[key] for key in ("x", "y", "width", "height") if key in n}
+        position = text(n["position"], nw + ".position") if "position" in n else None
+        if position is not None:
+            if position not in {"center", "top", "bottom", "left", "right",
+                                "top-left", "top-right", "bottom-left", "bottom-right"}:
+                raise ConfigError(f"{nw}.position: expected center, top, bottom, left, right, "
+                                  "top-left, top-right, bottom-left or bottom-right")
+            if "x" in n or "y" in n:
+                raise ConfigError(f"{nw}: position cannot be combined with x or y")
+        if (geometry or position is not None) and not n.get("floating", False):
+            raise ConfigError(f"{nw}: position, x, y, width and height apply only to floating windows")
+        for key, value in geometry.items():
+            if type(value) is not int or not -(2**31) <= value < 2**31:
+                raise ConfigError(f"{nw}.{key}: expected a signed 32-bit integer pixel value")
+            if key in {"width", "height"} and value <= 0:
+                raise ConfigError(f"{nw}.{key}: expected a positive integer pixel value")
         size = n.get("size")
         if size is not None and (type(size) not in {int, float} or not math.isfinite(size) or size <= 0 or size > 100):
             raise ConfigError(f"{nw}.size: expected a percentage greater than 0 and at most 100")
@@ -451,6 +467,7 @@ def resolve(config: dict, project: Path, name: str = "default",
             wm_class=line(n["class"], nw + ".class") if "class" in n else None,
             size=float(size) if size is not None else None,
             floating=boolean(n.get("floating", False), nw + ".floating"),
+            position=position, **geometry,
             output=outputs(n["output"], nw + ".output") if "output" in n else (),
         ))
     by_id = {n.id: n for n in nodes}

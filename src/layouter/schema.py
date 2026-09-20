@@ -78,7 +78,7 @@ def panes(value, where: str) -> dict:
 def kitty(value: dict, where: str) -> dict:
     """Normalize inline panes, explicit tabs, or a startup-only kitty session."""
     allowed(value, {"name", "enabled", "cwd", "env", "executable", "config", "options",
-                    "class", "size", "order", "session", "layout", "title", "pane", "tab"}, where)
+                    "class", "size", "order", "x", "y", "width", "height", "position", "session", "layout", "title", "pane", "tab"}, where)
     result = {k: copy.deepcopy(v) for k, v in value.items()
               if k not in {"name", "pane", "tab", "layout", "title", "session", "order"}}
     if "name" in value:
@@ -147,7 +147,7 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
             if kind == "kitty":
                 node = {"type": "kitty", "parent": parent, **kitty(item, iw)}
             else:
-                fields = {"name", "enabled", "command", "match", "cwd", "env", "adopt", "size", "order"} if kind == "window" else {"name", "enabled", "layout", "size", "order", *CHILDREN}
+                fields = {"name", "enabled", "command", "match", "cwd", "env", "adopt", "size", "order", "x", "y", "width", "height", "position"} if kind == "window" else {"name", "enabled", "layout", "size", "order", *CHILDREN}
                 allowed(item, fields, iw)
                 node = {"type": "app" if kind == "window" else "container", "parent": parent,
                         **{k: copy.deepcopy(v) for k, v in item.items() if k not in CHILDREN | {"name", "order"}}}

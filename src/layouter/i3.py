@@ -483,8 +483,10 @@ class Compositor(AbstractContextManager):
         if leaf.floating:
             self.command(f"[con_id={int(created['id'])}] floating enable")
         self._attach(workflow, leaf, int(created["id"]))
-        if leaf.floating and not self._floating_matches(workflow, leaf, self.tree()):
-            raise BackendError(f"Could not set floating placement for {leaf.id}")
+        if leaf.floating:
+            self._apply_floating_geometry(workflow, leaf)
+            if not self._floating_matches(workflow, leaf, self.tree()):
+                raise BackendError(f"Could not set floating placement for {leaf.id}")
 
     @staticmethod
     def _children(workflow: Workflow, parent: str) -> list[Node]:
@@ -674,16 +676,73 @@ class Compositor(AbstractContextManager):
                     differences.append(f"{child.id} size")
         return differences
 
+    @staticmethod
+    def _floating_rect(tree: dict, con_id: int) -> dict:
+        # i3 wraps the window in a floating_con whose rect includes decorations.
+        # Sway exposes the floating container directly.
+        path = path_to(tree, con_id)
+        if not path:
+            raise BackendError(f"Floating container {con_id} disappeared while reading its geometry")
+        owner = next((node for node in path if node.get("type") == "floating_con"), path[-1])
+        return owner.get("rect", {})
+
+    def _floating_position(self, workflow: Workflow, leaf: Node, tree: dict, rect: dict) -> dict:
+        if leaf.position is None:
+            return {key: getattr(leaf, key) for key in ("x", "y") if getattr(leaf, key) is not None}
+        workspace = self.resolve_node(workflow, self._workspace(workflow, leaf), tree)
+        area = workspace.get("rect", {}) if workspace else {}
+        if not all(key in area for key in ("x", "y", "width", "height")) or not all(
+                key in rect for key in ("width", "height")):
+            raise BackendError(f"Missing workspace or floating rectangle for {leaf.id}")
+        # Use the workspace's usable area so edges avoid panels. Center an
+        # unspecified axis and resolve after resizing, including decorations.
+        horizontal = area["width"] - rect["width"]
+        vertical = area["height"] - rect["height"]
+        x = 0 if "left" in leaf.position else horizontal if "right" in leaf.position else horizontal // 2
+        y = 0 if "top" in leaf.position else vertical if "bottom" in leaf.position else vertical // 2
+        return {"x": area["x"] + x, "y": area["y"] + y}
+
+    def _apply_floating_geometry(self, workflow: Workflow, leaf: Node):
+        if all(getattr(leaf, key) is None for key in ("position", "x", "y", "width", "height")):
+            return
+        tree = self.tree()
+        live = marked(tree, workflow.mark(leaf.id))
+        if live is None:
+            raise BackendError(f"Cannot size missing compositor element {leaf.id}")
+        con_id = int(live["id"])
+        rect = self._floating_rect(tree, con_id)
+        dimensions = [f"{key} {getattr(leaf, key)} px" for key in ("width", "height")
+                      if getattr(leaf, key) is not None and rect.get(key) != getattr(leaf, key)]
+        if dimensions:
+            self.command(f"[con_id={con_id}] resize set " + " ".join(dimensions))
+        # Resizing may move the top-left corner; read the new rect before moving.
+        tree = self.tree()
+        rect = self._floating_rect(tree, con_id)
+        position = self._floating_position(workflow, leaf, tree, rect)
+        if any(rect.get(key) != value for key, value in position.items()):
+            x = position.get("x", rect.get("x"))
+            y = position.get("y", rect.get("y"))
+            if x is None or y is None:
+                raise BackendError(f"Missing floating rectangle for {leaf.id}")
+            self.command(f"[con_id={con_id}] move absolute position {x} px {y} px")
+
     def _floating_matches(self, workflow: Workflow, leaf: Node, tree: dict) -> bool:
         live = marked(tree, workflow.mark(leaf.id))
         if live is None or not is_window(live):
             return False
         path = path_to(tree, int(live["id"]))
         workspace = self.resolve_node(workflow, self._workspace(workflow, leaf), tree)
-        return workspace is not None and any(
+        placed = workspace is not None and any(
             child.get("id") == descendant_node.get("id")
             for child in workspace.get("floating_nodes", []) for descendant_node in path
         )
+        if not placed:
+            return False
+        rect = self._floating_rect(tree, int(live["id"]))
+        position = self._floating_position(workflow, leaf, tree, rect)
+        return (all(rect.get(key) == value for key, value in position.items())
+                and all(getattr(leaf, key) is None or rect.get(key) == getattr(leaf, key)
+                        for key in ("width", "height")))
 
     def sync_plan(self, workflow: Workflow) -> list[tuple[str, str]]:
         """Report workspace, structure, and layout corrections without issuing mutations."""
@@ -697,7 +756,9 @@ class Compositor(AbstractContextManager):
             result.append(("compositor", "managed placement, nesting, or order"))
         for leaf in workflow.leaves:
             if leaf.floating and not self._floating_matches(workflow, leaf, tree):
-                result.append((leaf.id, "floating state or workspace"))
+                result.append((leaf.id, "floating state, workspace, or geometry" if any(
+                    getattr(leaf, key) is not None for key in ("position", "x", "y", "width", "height"))
+                    else "floating state or workspace"))
         for difference in self._layout_differences(workflow, tree):
             target, detail = difference.split(maxsplit=1)
             result.append((target, "declared " + detail))
@@ -761,6 +822,7 @@ class Compositor(AbstractContextManager):
                 raise BackendError(f"Cannot synchronize missing compositor element {leaf.id}")
             self.command(f"[con_id={int(live['id'])}] floating enable")
             self._attach(workflow, leaf, int(live["id"]))
+            self._apply_floating_geometry(workflow, leaf)
             if not self._floating_matches(workflow, leaf, self.tree()):
                 raise BackendError(f"Could not restore floating placement for {leaf.id}")
         self._initial_layout_and_sizes(workflow, force=True)

@@ -280,9 +280,16 @@ name = "dev"
   name = "calculator"
   command = ["gnome-calculator"]
   match = { class = "(?i)gnome-calculator" }
+  x = 100
+  y = 80
+  width = 400
+  height = 500
 
   [[workspace.floating.kitty]]
   name = "scratch-terminal"
+  position = "center"
+  width = 900
+  height = 600
 
     [[workspace.floating.kitty.pane]]
     name = "shell"
@@ -291,10 +298,25 @@ name = "dev"
 Floating declarations support the same launch, matching, identity, focus, and
 terminal settings as their tiled counterparts. Names must remain unique across
 all windows and containers. They do not accept tiling `size` or `order`, and
-floating containers are not supported. Position and dimensions are left to the
-compositor. New windows launch floating on their declared workspace; existing
+floating containers are not supported. Optional `x` and `y` are integer pixel
+coordinates of the outer floating container's top-left corner in the global
+desktop coordinate space (negative coordinates are allowed for outputs left of
+or above the origin). Optional `width` and `height` are positive integer pixel
+dimensions, including decorations. All four fields also work on floating Kitty
+windows. Instead of `x` and `y`, use `position = "center"`, `"top"`, `"bottom"`,
+`"left"`, `"right"`, `"top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"`.
+Named positions are relative to the declared workspace's usable rectangle,
+excluding reserved panels; edge positions center the other axis. They use the
+window's size after resizing and are recalculated by `--sync` when the workspace
+geometry changes. `position` cannot be combined with `x` or `y`.
+
+Omitted fields remain compositor-controlled; a resize can shift the
+position, so specify `x` and `y` too when exact placement matters. Coordinates
+must place the window on its declared workspace's output. Compositor size limits
+and application size hints can prevent exact geometry; failed verification is
+reported as an error. New windows launch floating on their declared workspace; existing
 and adopted windows keep their placement on ordinary runs. `--sync` restores
-floating state and workspace assignment. `--save-layout` retains floating
+floating state, workspace assignment, and any declared geometry. `--save-layout` retains floating
 declarations unchanged; `--capture` still omits floating windows.
 
 Layouter builds new groups from real application windows using compositor IPC.
@@ -602,7 +624,7 @@ For controlled Kitty windows, save-layout records tab titles/layouts and pane
 order within each declared tab. Cross-tab pane moves retain their declared
 membership and produce a warning because tab membership participates in pane
 identity. Exact Kitty `splits` geometry and floating/scratchpad placement are not
-representable. Moves that would change a location-derived element identity are
+captured by save-layout; existing floating geometry declarations are retained. Moves that would change a location-derived element identity are
 rejected; use simple names containing letters, digits, underscores, or hyphens
 for elements you intend to move between containers.
 

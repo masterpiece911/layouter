@@ -606,7 +606,8 @@ class TreeHarness:
                 else:
                     self.next_id += 1
                     workspace.setdefault("floating_nodes", []).append({
-                        "id": self.next_id, "type": "floating_con", "nodes": [source]})
+                        "id": self.next_id, "type": "floating_con", "nodes": [source],
+                        "rect": dict((parent if parent.get("type") == "floating_con" else source).get("rect", {}))})
             elif action.startswith("split "):
                 parent, collection, index = self.locate_parent(con_id)
                 self.next_id += 1
@@ -640,6 +641,15 @@ class TreeHarness:
                 if node.get("type") != "workspace":
                     node = self.locate_parent(con_id)[0]
                 node["layout"] = "stacked" if layout == "stacking" else layout
+            elif action.startswith("move absolute position "):
+                rect = self.backend._floating_rect(self.state, con_id)
+                parts = action.split()
+                rect.update(x=int(parts[3]), y=int(parts[5]))
+            elif action.startswith("resize set ") and action.endswith(" px"):
+                rect = self.backend._floating_rect(self.state, con_id)
+                parts = action.split()[2:]
+                for index in range(0, len(parts), 3):
+                    rect[parts[index]] = int(parts[index + 1])
             elif action.startswith("resize set "):
                 node["percent"] = float(action.split()[-2]) / 100
             else:
@@ -679,6 +689,99 @@ class FloatingTests(unittest.TestCase):
                 self.assertTrue(backend._floating_matches(workflow, workflow.by_id["tools"], harness.state))
                 self.assertFalse(any("con_id=10" in command for command in harness.commands))
                 self.assertEqual(backend.sync_plan(workflow), [])
+
+    def test_floating_geometry_launch_drift_sync_and_partial_fields(self):
+        for sway in (False, True):
+            for geometry in ({"x": -900, "y": 20, "width": 640, "height": 480},
+                             {"width": 700}, {"height": 500}, {"x": 0}, {"y": 0}):
+                with self.subTest(sway=sway, geometry=geometry):
+                    workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+                        "window": [{"name": "tools", "command": ["tools"], **geometry}]}}]}), Path.cwd())
+                    original = {"x": 50, "y": 60, "width": 300, "height": 200}
+                    window = {"id": 11, "type": "con", "window": 111, "marks": [],
+                              "nodes": [], "rect": dict(original)}
+                    tree = {"id": 0, "nodes": [{"id": 1, "type": "workspace", "name": "dev",
+                            "layout": "splith", "nodes": [window], "floating_nodes": []}]}
+                    harness = TreeHarness(workflow, tree, sway=sway)
+                    backend = harness.backend
+                    backend.place_new(workflow, workflow.by_id["tools"], window, set())
+                    rect = backend._floating_rect(harness.state, 11)
+                    self.assertEqual(rect, {**original, **geometry})
+                    harness.commands.clear()
+                    self.assertEqual(backend.sync(workflow), [])
+                    self.assertEqual(harness.commands, [])
+                    key = next(iter(geometry))
+                    rect[key] += 10
+                    backend.finalize(workflow)
+                    self.assertEqual(harness.commands, [])
+                    self.assertTrue(backend.sync_plan(workflow))
+                    self.assertEqual(harness.commands, [])
+                    backend.sync(workflow)
+                    self.assertEqual(backend._floating_rect(harness.state, 11), {**original, **geometry})
+                    self.assertEqual(backend.sync_plan(workflow), [])
+
+    def test_named_floating_positions(self):
+        expected = {"center": (-800, 340), "top": (-800, 40), "bottom": (-800, 640),
+                    "left": (-1200, 340), "right": (-400, 340),
+                    "top-left": (-1200, 40), "top-right": (-400, 40),
+                    "bottom-left": (-1200, 640), "bottom-right": (-400, 640)}
+        for sway in (False, True):
+            for position, coordinates in expected.items():
+                with self.subTest(sway=sway, position=position):
+                    workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+                        "window": [{"name": "tools", "command": ["tools"], "position": position,
+                                    "width": 400, "height": 200}]}}]}), Path.cwd())
+                    window = {"id": 11, "type": "con", "window": 111, "marks": [], "nodes": [],
+                              "rect": {"x": -1100, "y": 60, "width": 300, "height": 100}}
+                    workspace = {"id": 1, "type": "workspace", "name": "dev", "layout": "splith",
+                                 "rect": {"x": -1200, "y": 40, "width": 1200, "height": 800},
+                                 "nodes": [window], "floating_nodes": []}
+                    harness = TreeHarness(workflow, {"id": 0, "nodes": [workspace]}, sway=sway)
+                    backend = harness.backend
+                    backend.place_new(workflow, workflow.by_id["tools"], window, set())
+                    rect = backend._floating_rect(harness.state, 11)
+                    self.assertEqual((rect["x"], rect["y"]), coordinates)
+                    self.assertEqual((rect["width"], rect["height"]), (400, 200))
+                    harness.commands.clear()
+                    self.assertEqual(backend.sync(workflow), [])
+                    self.assertEqual(harness.commands, [])
+                    # A changed output/workspace origin must recalculate the anchor.
+                    workspace["rect"]["x"] += 100
+                    backend.finalize(workflow)
+                    self.assertEqual(harness.commands, [])
+                    self.assertTrue(backend.sync_plan(workflow))
+                    self.assertEqual(harness.commands, [])
+                    backend.sync(workflow)
+                    rect = backend._floating_rect(harness.state, 11)
+                    self.assertEqual((rect["x"], rect["y"]), (coordinates[0] + 100, coordinates[1]))
+                    self.assertEqual(backend.sync_plan(workflow), [])
+
+    def test_named_position_without_dimensions_and_missing_rect(self):
+        workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+            "kitty": [{"name": "term", "position": "center", "pane": [{"name": "shell"}]}]}}]}), Path.cwd())
+        window = {"id": 11, "type": "con", "window": 111, "marks": [], "nodes": [],
+                  "rect": {"x": 10, "y": 20, "width": 301, "height": 201}}
+        workspace = {"id": 1, "type": "workspace", "name": "dev", "layout": "splith",
+                     "rect": {"x": 0, "y": 30, "width": 1000, "height": 800},
+                     "nodes": [window], "floating_nodes": []}
+        harness = TreeHarness(workflow, {"id": 0, "nodes": [workspace]}, sway=True)
+        harness.backend.place_new(workflow, workflow.by_id["term"], window, set())
+        self.assertEqual(window["rect"], {"x": 349, "y": 329, "width": 301, "height": 201})
+        self.assertFalse(any("resize" in command for command in harness.commands))
+        del workspace["rect"]
+        with self.assertRaisesRegex(BackendError, "Missing workspace or floating rectangle"):
+            harness.backend.sync_plan(workflow)
+
+    def test_floating_geometry_failure_is_reported(self):
+        workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+            "window": [{"name": "tools", "command": ["tools"], "width": 640}]}}]}), Path.cwd())
+        window = {"id": 11, "type": "con", "window": 111, "marks": [], "nodes": [],
+                  "rect": {"x": 0, "y": 0, "width": 300, "height": 200}}
+        harness = TreeHarness(workflow, {"id": 0, "nodes": [{"id": 1, "type": "workspace",
+            "name": "dev", "nodes": [window], "floating_nodes": []}]}, sway=True)
+        harness.backend.command = lambda command: None if "resize set" in command else harness.command(command)
+        with self.assertRaisesRegex(BackendError, "Could not set floating placement"):
+            harness.backend.place_new(workflow, workflow.by_id["tools"], window, set())
 
     def test_floating_only_workspace_has_no_tiling_structure(self):
         workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
