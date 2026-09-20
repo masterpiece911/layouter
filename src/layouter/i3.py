@@ -534,26 +534,33 @@ class Compositor(AbstractContextManager):
             # Outside sync, mutable IDs belong only to this invocation. Reusing an
             # older child here would silently rearrange the user's existing layout.
             return False
-        first, second = resolved[0], resolved[1]
         direction = "vertical" if container.layout == "splitv" else "horizontal"
         self.command(f"[con_id={ids[0]}] focus; split {direction}")
-        self.command(f"[con_id={ids[1]}] move container to mark {quote(first[1])}")
         tree = self.tree()
-        parent = common_parent(tree, ids[0], ids[1])
+        parent = parent_of(tree, ids[0])
         if parent is None or parent.get("type") in {"root", "output", "workspace"}:
             # Redundant split containers may be flattened by the compositor.
             return False
+        if [child["id"] for child in parent.get("nodes", [])] != [ids[0]] or managed(parent):
+            raise BackendError(f"Could not isolate a new container for {container.id}")
+        # A mark on a real window inserts beside that window, but a mark on a
+        # group inserts *inside* it. Target the new wrapper explicitly so a
+        # first child that is itself a group keeps its own children and layout.
         self.mark(parent, workflow.mark(container.id))
         parent = self.find(workflow.mark(container.id)) or parent
         parent_id = int(parent["id"])
         self.mutable_ids.add(parent_id)
-        previous = ids[1]
-        for con_id in ids[2:]:
+        previous = ids[0]
+        for con_id in ids[1:]:
             if not descendant(self.tree(), con_id, parent_id):
                 self.command(f"[con_id={previous}] focus; "
                              f"[con_id={con_id}] move container to mark {quote(workflow.mark(container.id))}")
             previous = con_id
-        self.command(f"[con_id={parent_id}] layout {command_layout(container.layout)}")
+        parent = find_id(self.tree(), parent_id)
+        if parent is None or [child["id"] for child in parent.get("nodes", [])] != ids:
+            raise BackendError(f"Could not assemble the declared children of {container.id}")
+        # layout operates on the selected container's parent in i3 and Sway.
+        self.command(f"[con_id={ids[0]}] layout {command_layout(container.layout)}")
         self._attach(workflow, container, parent_id)
         return True
 
@@ -583,7 +590,7 @@ class Compositor(AbstractContextManager):
                 if parent.kind == "workspace":
                     self._workspace_layout(live, parent.layout)
                 else:
-                    self.command(f"[con_id={parent_id}] layout {command_layout(parent.layout)}")
+                    self.command(f"[con_id={child_ids[0]}] layout {command_layout(parent.layout)}")
             if parent.layout not in {"splith", "splitv"} or len(children) < 2:
                 continue
             dimension = "width" if parent.layout == "splith" else "height"

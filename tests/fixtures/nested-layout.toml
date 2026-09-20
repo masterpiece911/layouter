@@ -1,0 +1,94 @@
+# Eight kitty windows in the saved workspace layout.
+# Each window launches kitty with its default shell and configuration.
+"session" = "default"
+
+[["workspace"]]
+"name" = "1"
+"output" = "eDP-1"
+"layout" = "splith"
+
+[["workspace"."window"]]
+"name" = "kitty"
+"command" = ["kitty"]
+"size" = 50.0
+"order" = 0
+
+[["workspace"."container"]]
+"name" = "group"
+"layout" = "splitv"
+"size" = 50.0
+"order" = 1
+
+[["workspace"."container"."container"]]
+"name" = "group-2"
+"layout" = "splith"
+"size" = 50
+"order" = 0
+
+[["workspace"."container"."container"."container"]]
+"name" = "group-3"
+"layout" = "splitv"
+"size" = 50
+"order" = 0
+
+[["workspace"."container"."container"."container"."window"]]
+"name" = "kitty-2"
+"command" = ["kitty"]
+"size" = 50
+"order" = 0
+
+[["workspace"."container"."container"."container"."container"]]
+"name" = "group-4"
+"layout" = "splith"
+"size" = 50
+"order" = 1
+
+[["workspace"."container"."container"."container"."container"."window"]]
+"name" = "kitty-3"
+"command" = ["kitty"]
+"size" = 50
+"order" = 0
+
+[["workspace"."container"."container"."container"."container"."container"]]
+"name" = "group-5"
+"layout" = "splitv"
+"size" = 50.0
+"order" = 1
+
+[["workspace"."container"."container"."container"."container"."container"."container"]]
+"name" = "group-6"
+"layout" = "splith"
+"size" = 50.0
+"order" = 0
+
+[["workspace"."container"."container"."container"."container"."container"."container"."window"]]
+"name" = "kitty-4"
+"command" = ["kitty"]
+"size" = 50.0
+"order" = 0
+
+[["workspace"."container"."container"."container"."container"."container"."container"."window"]]
+"name" = "kitty-5"
+"command" = ["kitty"]
+"size" = 50.0
+"order" = 1
+
+[["workspace"."container"."container"."container"."container"."container"."window"]]
+"name" = "kitty-6"
+"command" = ["kitty"]
+"size" = 50.0
+"order" = 1
+
+[["workspace"."container"."container"."window"]]
+"name" = "kitty-7"
+"command" = ["kitty"]
+"size" = 50.0
+"order" = 1
+
+[["workspace"."container"."window"]]
+"name" = "kitty-8"
+"command" = ["kitty"]
+"size" = 50
+"order" = 1
+
+

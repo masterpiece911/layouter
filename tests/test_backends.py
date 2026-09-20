@@ -10,6 +10,7 @@ import socket
 import subprocess
 import tempfile
 import threading
+import tomllib
 import unittest
 from unittest.mock import Mock, patch
 
@@ -19,6 +20,7 @@ from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEAD
 from layouter.kitty import Kitty, Snapshot, SocketNotReady
 from layouter.runtime import Runtime
 from layouter.reconcile import Reconciler, check_executable
+from layouter.schema import normalize_document
 
 
 def supports_unix_sockets():
@@ -616,6 +618,8 @@ class TreeHarness:
                 target.setdefault("nodes", []).append(source_collection.pop(source_index))
             elif action.startswith("layout "):
                 layout = action.split()[1]
+                if node.get("type") != "workspace":
+                    node = self.locate_parent(con_id)[0]
                 node["layout"] = "stacked" if layout == "stacking" else layout
             elif action.startswith("resize set "):
                 node["percent"] = float(action.split()[-2]) / 100
@@ -624,6 +628,34 @@ class TreeHarness:
 
 
 class PlacementTests(unittest.TestCase):
+    def test_exported_tree_with_groups_as_first_children(self):
+        document = tomllib.loads((Path(__file__).parent / "fixtures" / "nested-layout.toml").read_text())
+        workflow = resolve(normalize_document(document), Path(self.temp.name))
+        for sync in (False, True):
+            with self.subTest(sync=sync):
+                workspace = {"id": 1, "type": "workspace", "name": "1", "num": 1,
+                             "layout": "splith", "nodes": [], "floating_nodes": []}
+                harness = TreeHarness(workflow, {"id": 0, "type": "root", "nodes": [workspace]}, sway=True)
+                for con_id, leaf in enumerate(workflow.leaves, 10):
+                    workspace["nodes"].append({"id": con_id, "type": "con", "app_id": "kitty",
+                                               "marks": [workflow.mark(leaf.id)], "nodes": []})
+                    if not sync:
+                        harness.backend.mutable_ids.add(con_id)
+                harness.backend.safe_workspaces.add(1)
+                if sync:
+                    harness.backend.sync(workflow)
+                else:
+                    self.assertEqual(harness.backend.finalize(workflow), [])
+                self.assertTrue(harness.backend._structure_matches(workflow, harness.state))
+                self.assertEqual(harness.backend._layout_differences(workflow, harness.state), [])
+                groups = [marked(harness.state, workflow.mark(node.id))
+                          for node in workflow.nodes if node.kind == "container"]
+                self.assertEqual(len({group["id"] for group in groups}), 6)
+                self.assertTrue(all(len(group["marks"]) == 1 for group in groups))
+                harness.commands.clear()
+                self.assertEqual(harness.backend.sync(workflow), [])
+                self.assertEqual(harness.commands, [])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
