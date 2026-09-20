@@ -155,13 +155,22 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
             if kind == "container":
                 visit_children(item, nid, iw)
 
-    for workspace in entries(value["workspace"], "workspace"):
-        allowed(workspace, {"name", "number", "layout", "output", "enabled", *CHILDREN}, "workspace")
+    for workspace in entries(value.get("workspace", []), "workspace"):
+        allowed(workspace, {"name", "number", "layout", "output", "enabled", "floating", *CHILDREN}, "workspace")
         name, _ = element_name(workspace, "workspace")
         nid = workspace_id(name)
         add(nid, {"type": "workspace", "ref": name,
-                  **{k: copy.deepcopy(v) for k, v in workspace.items() if k not in CHILDREN}})
+                  **{k: copy.deepcopy(v) for k, v in workspace.items() if k not in CHILDREN | {"floating"}}})
         visit_children(workspace, nid, "workspace")
+        floating = mapping(workspace.get("floating", {}), "workspace.floating")
+        allowed(floating, {"window", "kitty"}, "workspace.floating")
+        for kind, items in floating.items():
+            for item in entries(items, "workspace.floating." + kind):
+                if "size" in item or "order" in item:
+                    raise ConfigError(f"workspace.floating.{kind}: size and order apply only to tiled elements")
+                visit_children({kind: [item]}, nid, "workspace.floating")
+                child_id = element_name(item, "workspace.floating." + kind)[1]
+                nodes[child_id]["floating"] = True
     result["nodes"] = nodes
     return result
 

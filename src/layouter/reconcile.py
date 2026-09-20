@@ -10,7 +10,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from .errors import AmbiguousState, BackendError
+from .errors import AmbiguousState, BackendError, WindowDiscoveryTimeout
 from .i3 import is_window, marked, walk
 from .kitty import Kitty
 from .model import Node, Workflow
@@ -138,7 +138,22 @@ class Reconciler:
             self.runtime.spawn(node.command, node.cwd,
                 {**node.env, "LAYOUTER_SESSION": w.session_id, "LAYOUTER_ELEMENT": w.element_id(node.id)},
                 w.element_id(node.id))
-            created = self.i3.wait_new(events, baseline, node.match, node.id)
+            try:
+                created = self.i3.wait_new(events, baseline, node.match, node.id)
+            except WindowDiscoveryTimeout as exc:
+                remedy = (
+                    "Adoption is already enabled; check that match identifies the existing window "
+                    "and that it is not managed by another declaration."
+                    if node.adopt else
+                    "To reuse an existing unmanaged window, set adopt = true and an explicit match "
+                    'in this window declaration (for example, match = { class = "^AppClass$" }, '
+                    "using the application's actual class or app_id)."
+                )
+                raise WindowDiscoveryTimeout(
+                    f"{exc} The application may have reused an existing window instead of opening a new one. "
+                    f"{remedy} Alternatively, use the application's new-window option if it supports one. "
+                    "Adoption preserves placement; --sync reapplies the declared workspace and layout."
+                ) from exc
             self.i3.place_new(w, node, created, baseline)
         self.record("create", node.id, "app")
 

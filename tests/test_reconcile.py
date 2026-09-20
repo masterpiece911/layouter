@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import Mock
 
 from layouter.config import resolve
-from layouter.errors import AmbiguousState, BackendError
+from layouter.errors import AmbiguousState, BackendError, WindowDiscoveryTimeout
 from layouter.i3 import marked, matches, unique, walk
 from layouter.kitty import Snapshot
 from layouter.reconcile import Reconciler
@@ -232,6 +232,28 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(self.kitty.created, [("dev", "tests", 22)])
         self.assertEqual([w["id"] for w in old_tab["windows"]], [52, 999])
         self.assertEqual(detached["tabs"][0]["layout"], "grid")
+
+    def test_application_timeout_explains_existing_window_remedy(self):
+        for adopt in (False, True):
+            with self.subTest(adopt=adopt):
+                self.data["workflows"]["default"]["nodes"]["editor"]["adopt"] = adopt
+                self.build()
+                self.i3.wait_new = Mock(side_effect=WindowDiscoveryTimeout("No new matching window"))
+                with self.assertRaises(WindowDiscoveryTimeout) as error:
+                    self.reconciler.app(self.reconciler.workflow.by_id["editor"])
+                message = str(error.exception)
+                self.assertIn("may have reused an existing window", message)
+                self.assertIn("Adoption is already enabled" if adopt else "adopt = true", message)
+                self.assertIn("match", message)
+                self.assertIn("--sync", message)
+                self.assertFalse(any(kind == "place" for kind, *_ in self.i3.mutations))
+
+    def test_other_launch_errors_do_not_suggest_adoption(self):
+        original = BackendError("IPC disconnected")
+        self.i3.wait_new = Mock(side_effect=original)
+        with self.assertRaises(BackendError) as error:
+            self.reconciler.app(self.reconciler.workflow.by_id["editor"])
+        self.assertIs(error.exception, original)
 
     def test_adoption_only_marks_and_does_not_place(self):
         self.data["workflows"]["default"]["nodes"]["editor"]["adopt"] = True

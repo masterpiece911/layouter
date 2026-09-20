@@ -391,10 +391,10 @@ def resolve(config: dict, project: Path, name: str = "default",
             if "layout" not in n:
                 raise ConfigError(f"{nw}: containers require a layout")
         elif kind == "app":
-            allowed |= {"parent", "command", "match", "cwd", "env", "adopt", "size"}
+            allowed |= {"parent", "command", "match", "cwd", "env", "adopt", "size", "floating"}
         elif kind == "kitty":
             allowed |= {"name", "parent", "cwd", "env", "tabs", "executable", "config", "options", "session_file",
-                        "class", "size"}
+                        "class", "size", "floating"}
         else:
             raise ConfigError(f"{nw}: unknown node type {kind!r}")
         keys(n, allowed, nw)
@@ -450,6 +450,7 @@ def resolve(config: dict, project: Path, name: str = "default",
             options=options, session_file=session_file,
             wm_class=line(n["class"], nw + ".class") if "class" in n else None,
             size=float(size) if size is not None else None,
+            floating=boolean(n.get("floating", False), nw + ".floating"),
             output=outputs(n["output"], nw + ".output") if "output" in n else (),
         ))
     by_id = {n.id: n for n in nodes}
@@ -463,6 +464,12 @@ def resolve(config: dict, project: Path, name: str = "default",
             if parent not in by_id or by_id[parent].kind not in {"workspace", "container"}:
                 raise ConfigError(f"{node.id}: parent {parent!r} must be an enabled workspace/container")
             parent = by_id[parent].parent
+    for node in nodes:
+        if node.floating:
+            if by_id[node.parent].kind != "workspace":
+                raise ConfigError(f"{node.id}: floating windows must belong directly to a workspace")
+            if node.size is not None:
+                raise ConfigError(f"{node.id}: size applies only to tiled elements")
     workspace_names = [n.name for n in nodes if n.kind == "workspace"]
     if len(set(workspace_names)) != len(workspace_names):
         raise ConfigError("Workspace names must be unique within a workflow")

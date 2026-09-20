@@ -9,6 +9,7 @@ from unittest.mock import patch
 from layouter.cli import main, parser
 from layouter.config import expand, load, resolve
 from layouter.errors import ConfigError
+from layouter.schema import normalize_document
 
 
 def basic():
@@ -26,6 +27,42 @@ class ConfigTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name)
+
+    def test_nested_floating_declarations(self):
+        source = self.project / "floating.toml"
+        source.write_text('''focus = "terminal.dev.shell"
+[[workspace]]
+name = "dev"
+[[workspace.floating.window]]
+name = "tools"
+command = ["tools", "{project}"]
+match = {class = "Tools"}
+adopt = true
+[[workspace.floating.kitty]]
+name = "terminal"
+[[workspace.floating.kitty.pane]]
+name = "shell"
+''')
+        data, sources = load(self.project, selected=str(source))
+        workflow = resolve(data, self.project, sources=sources)
+        self.assertTrue(all(node.floating for node in workflow.leaves))
+        self.assertTrue(all(node.parent == "workspace-dev" for node in workflow.leaves))
+        self.assertEqual(workflow.by_id["tools"].command, ("tools", str(self.project)))
+        self.assertEqual(workflow.focus, "terminal.dev.shell")
+        self.assertTrue(workflow.by_id["tools"].adopt)
+        data["workflows"]["default"]["nodes"]["workspace-dev"]["enabled"] = False
+        data["workflows"]["default"].pop("focus")
+        self.assertEqual(resolve(data, self.project).leaves, ())
+
+    def test_invalid_floating_declarations(self):
+        for floating in ([], {"container": []}, {"window": {}},
+                         {"window": [{"name": "tool", "command": ["tool"], "size": 50}]},
+                         {"kitty": [{"name": "tool", "pane": [{"name": "shell"}], "order": 0}]}):
+            with self.subTest(floating=floating), self.assertRaises(ConfigError):
+                resolve(normalize_document({"workspace": [{"name": "dev", "floating": floating}]}), self.project)
+        with self.assertRaisesRegex(ConfigError, "duplicate element"):
+            normalize_document({"workspace": [{"name": "dev", "window": [{"name": "tool"}],
+                "floating": {"window": [{"name": "tool"}]}}]})
 
     def test_workflow_sync_displays(self):
         source = self.project / "workflow.toml"

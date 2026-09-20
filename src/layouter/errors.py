@@ -12,5 +12,9 @@ class BackendError(LayouterError):
     pass
 
 
+class WindowDiscoveryTimeout(BackendError):
+    """A launch produced no new matching compositor window before the deadline."""
+
+
 class AmbiguousState(BackendError):
     pass

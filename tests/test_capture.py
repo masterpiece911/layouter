@@ -40,6 +40,20 @@ class CaptureTests(unittest.TestCase):
     def resolve(self, document):
         return resolve(normalize_document(document), self.project)
 
+    def test_save_retains_floating_declarations_even_when_manually_tiled(self):
+        document = {"workspace": [{"name": "dev", "floating": {"window": [
+            {"name": "tools", "command": ["tools"]}]}}]}
+        workflow = self.resolve(document)
+        for floating in (True, False):
+            with self.subTest(floating=floating):
+                tree = desktop([] if floating else [window(10, workflow, "tools")])
+                if floating:
+                    tree["nodes"][0]["nodes"][0]["floating_nodes"] = [window(10, workflow, "tools")]
+                saved, warnings = save_layout(document, workflow, tree, self.compositor, self.runtime)
+                self.assertEqual(saved["workspace"][0]["floating"], document["workspace"][0]["floating"])
+                self.assertTrue(any("kept its floating declaration" in warning for warning in warnings))
+                self.assertTrue(self.resolve(tomllib.loads(dumps(saved))).by_id["tools"].floating)
+
     def test_capture_unknown_apps_are_disabled_and_geometry_roundtrips(self):
         group = {"id": 11, "type": "con", "layout": "splitv", "percent": .3,
                  "nodes": [window(12)]}

@@ -67,6 +67,7 @@ class Node:
     wm_class: str | None = None
     size: float | None = None
     output: tuple[str, ...] = ()
+    floating: bool = False
 
 
 @dataclass(frozen=True)

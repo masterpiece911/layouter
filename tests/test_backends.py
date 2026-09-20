@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 
 from layouter.config import resolve
 from layouter.errors import AmbiguousState, BackendError
-from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEADER, MAGIC, command_layout, marked, matches, quote, walk
+from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEADER, MAGIC, command_layout, marked, matches, path_to, quote, walk
 from layouter.kitty import Kitty, Snapshot, SocketNotReady
 from layouter.runtime import Runtime
 from layouter.reconcile import Reconciler, check_executable
@@ -591,8 +591,22 @@ class TreeHarness:
                 node.setdefault("marks", []).append(shlex.split(action[len("mark --add "):])[0])
             elif action.startswith("unmark "):
                 node.setdefault("marks", []).remove(shlex.split(action[len("unmark "):])[0])
-            elif action == "floating disable":
-                pass
+            elif action in {"floating disable", "floating enable"}:
+                path = path_to(self.state, con_id)
+                workspace = next(item for item in path if item.get("type") == "workspace")
+                parent, collection, index = self.locate_parent(con_id)
+                source = collection.pop(index)
+                if parent.get("type") == "floating_con":
+                    _, wrappers, wrapper_index = self.locate_parent(parent["id"])
+                    wrappers.pop(wrapper_index)
+                if action == "floating disable":
+                    workspace.setdefault("nodes", []).append(source)
+                elif self.compositor == "sway":
+                    workspace.setdefault("floating_nodes", []).append(source)
+                else:
+                    self.next_id += 1
+                    workspace.setdefault("floating_nodes", []).append({
+                        "id": self.next_id, "type": "floating_con", "nodes": [source]})
             elif action.startswith("split "):
                 parent, collection, index = self.locate_parent(con_id)
                 self.next_id += 1
@@ -614,8 +628,13 @@ class TreeHarness:
                 name = shlex.split(action[len("move container to workspace "):])[0]
                 target = next(item for item in walk(self.state)
                               if item.get("type") == "workspace" and item.get("name") == name)
-                _, source_collection, source_index = self.locate_parent(con_id)
-                target.setdefault("nodes", []).append(source_collection.pop(source_index))
+                parent, source_collection, source_index = self.locate_parent(con_id)
+                if parent.get("type") == "floating_con":
+                    _, source_collection, source_index = self.locate_parent(parent["id"])
+                    floating = True
+                else:
+                    floating = source_collection is parent.get("floating_nodes")
+                target.setdefault("floating_nodes" if floating else "nodes", []).append(source_collection.pop(source_index))
             elif action.startswith("layout "):
                 layout = action.split()[1]
                 if node.get("type") != "workspace":
@@ -625,6 +644,49 @@ class TreeHarness:
                 node["percent"] = float(action.split()[-2]) / 100
             else:
                 raise AssertionError(f"Unsupported test command: {part}")
+
+
+class FloatingTests(unittest.TestCase):
+    def test_launch_and_sync_floating_windows_on_i3_and_sway(self):
+        document = {"workspace": [{"name": "dev", "window": [
+            {"name": "editor", "command": ["editor"]}], "floating": {"window": [
+            {"name": "tools", "command": ["tools"]}]}}]}
+        workflow = resolve(normalize_document(document), Path.cwd())
+        for sway in (False, True):
+            with self.subTest(sway=sway):
+                editor = {"id": 10, "type": "con", "window": 110,
+                          "marks": [workflow.mark("editor")], "nodes": []}
+                tools = {"id": 11, "type": "con", "window": 111, "marks": [], "nodes": []}
+                destination = {"id": 1, "type": "workspace", "name": "dev", "layout": "splith",
+                               "nodes": [editor], "floating_nodes": []}
+                other = {"id": 2, "type": "workspace", "name": "other", "nodes": [tools]}
+                harness = TreeHarness(workflow, {"id": 0, "nodes": [destination, other]}, sway=sway)
+                backend = harness.backend
+                backend.place_new(workflow, workflow.by_id["tools"], tools, {10})
+                self.assertTrue(backend._floating_matches(workflow, workflow.by_id["tools"], harness.state))
+                self.assertEqual(destination["nodes"], [editor])
+                self.assertEqual(backend.sync(workflow), [])
+                harness.commands.clear()
+                backend.sync(workflow)
+                self.assertEqual(harness.commands, [])
+                harness.command('[con_id=11] floating disable')
+                harness.command('[con_id=11] move container to workspace "other"')
+                harness.commands.clear()
+                backend.finalize(workflow)
+                self.assertEqual(harness.commands, [])
+                self.assertEqual(backend.sync_plan(workflow), [("tools", "floating state or workspace")])
+                backend.sync(workflow)
+                self.assertTrue(backend._floating_matches(workflow, workflow.by_id["tools"], harness.state))
+                self.assertFalse(any("con_id=10" in command for command in harness.commands))
+                self.assertEqual(backend.sync_plan(workflow), [])
+
+    def test_floating_only_workspace_has_no_tiling_structure(self):
+        workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+            "kitty": [{"name": "term", "pane": [{"name": "shell"}]}]}}]}), Path.cwd())
+        backend = Compositor.__new__(Compositor)
+        self.assertEqual(backend._structural_parents(workflow), [])
+        self.assertEqual(backend._children(workflow, "workspace-dev"), [])
+        self.assertEqual([node.id for node in backend._managed_workspaces(workflow)], ["workspace-dev"])
 
 
 class PlacementTests(unittest.TestCase):

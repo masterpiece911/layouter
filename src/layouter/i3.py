@@ -17,7 +17,7 @@ from collections import deque
 from contextlib import AbstractContextManager
 from enum import IntEnum
 
-from .errors import AmbiguousState, BackendError
+from .errors import AmbiguousState, BackendError, WindowDiscoveryTimeout
 from .model import Node, Workflow
 
 HEADER = struct.Struct("=6sII")
@@ -330,8 +330,9 @@ class Compositor(AbstractContextManager):
                 if result is not None:
                     return result
                 break
-        raise BackendError(f"Timed out discovering {description}. The process was left running; "
-                           "check its matcher and runtime log before retrying")
+        raise WindowDiscoveryTimeout(
+            f"Timed out discovering {description}: no new matching window appeared. "
+            "Layouter did not terminate the launched process; check its matcher and runtime log before retrying.")
 
     def _sets(self):
         # Test doubles constructed without __init__ also use these methods.
@@ -479,7 +480,11 @@ class Compositor(AbstractContextManager):
         self._sets()
         self.mark(created, workflow.mark(leaf.id))
         self.mutable_ids.add(int(created["id"]))
+        if leaf.floating:
+            self.command(f"[con_id={int(created['id'])}] floating enable")
         self._attach(workflow, leaf, int(created["id"]))
+        if leaf.floating and not self._floating_matches(workflow, leaf, self.tree()):
+            raise BackendError(f"Could not set floating placement for {leaf.id}")
 
     @staticmethod
     def _children(workflow: Workflow, parent: str) -> list[Node]:
@@ -491,6 +496,8 @@ class Compositor(AbstractContextManager):
         active = set()
         by_id = workflow.by_id
         for leaf in workflow.leaves:
+            if leaf.floating:
+                continue
             current = leaf
             while current.id not in active:
                 active.add(current.id)
@@ -603,7 +610,7 @@ class Compositor(AbstractContextManager):
 
     def _structural_parents(self, workflow: Workflow) -> list[Node]:
         """Select active workspaces and containers whose multiple children require real structure."""
-        workspaces = {self._workspace(workflow, leaf).id for leaf in workflow.leaves}
+        workspaces = {self._workspace(workflow, leaf).id for leaf in workflow.leaves if not leaf.floating}
         return [node for node in workflow.nodes
                 if (node.kind == "workspace" and node.id in workspaces) or
                 (node.kind == "container" and len(self._children(workflow, node.id)) > 1)]
@@ -615,6 +622,8 @@ class Compositor(AbstractContextManager):
     def _structure_matches(self, workflow: Workflow, tree: dict) -> bool:
         """Check managed tiling, parentage, workspace names, and relative child order."""
         for leaf in workflow.leaves:
+            if leaf.floating:
+                continue
             live = marked(tree, workflow.mark(leaf.id))
             if live is None or not is_window(live):
                 return False
@@ -665,6 +674,17 @@ class Compositor(AbstractContextManager):
                     differences.append(f"{child.id} size")
         return differences
 
+    def _floating_matches(self, workflow: Workflow, leaf: Node, tree: dict) -> bool:
+        live = marked(tree, workflow.mark(leaf.id))
+        if live is None or not is_window(live):
+            return False
+        path = path_to(tree, int(live["id"]))
+        workspace = self.resolve_node(workflow, self._workspace(workflow, leaf), tree)
+        return workspace is not None and any(
+            child.get("id") == descendant_node.get("id")
+            for child in workspace.get("floating_nodes", []) for descendant_node in path
+        )
+
     def sync_plan(self, workflow: Workflow) -> list[tuple[str, str]]:
         """Report workspace, structure, and layout corrections without issuing mutations."""
         tree = self.tree()
@@ -675,6 +695,9 @@ class Compositor(AbstractContextManager):
                 result.append((workspace.id, "workspace destination"))
         if not self._structure_matches(workflow, tree):
             result.append(("compositor", "managed placement, nesting, or order"))
+        for leaf in workflow.leaves:
+            if leaf.floating and not self._floating_matches(workflow, leaf, tree):
+                result.append((leaf.id, "floating state or workspace"))
         for difference in self._layout_differences(workflow, tree):
             target, detail = difference.split(maxsplit=1)
             result.append((target, "declared " + detail))
@@ -690,6 +713,8 @@ class Compositor(AbstractContextManager):
         if not self._structure_matches(workflow, tree):
             leaves = []
             for leaf in workflow.leaves:
+                if leaf.floating:
+                    continue
                 live = marked(tree, workflow.mark(leaf.id))
                 if live is None or not is_window(live):
                     raise BackendError(f"Cannot synchronize missing compositor element {leaf.id}")
@@ -728,6 +753,16 @@ class Compositor(AbstractContextManager):
                         progress = self._materialize(workflow, container) or progress
                 if not self._structure_matches(workflow, self.tree()):
                     raise BackendError("Could not reconstruct the declared managed compositor tree")
+        for leaf in workflow.leaves:
+            if not leaf.floating or self._floating_matches(workflow, leaf, self.tree()):
+                continue
+            live = marked(self.tree(), workflow.mark(leaf.id))
+            if live is None or not is_window(live):
+                raise BackendError(f"Cannot synchronize missing compositor element {leaf.id}")
+            self.command(f"[con_id={int(live['id'])}] floating enable")
+            self._attach(workflow, leaf, int(live["id"]))
+            if not self._floating_matches(workflow, leaf, self.tree()):
+                raise BackendError(f"Could not restore floating placement for {leaf.id}")
         self._initial_layout_and_sizes(workflow, force=True)
         return changes
 

@@ -261,6 +261,7 @@ def raw_index(document):
         nid = workspace_id(item["name"])
         result[nid], kinds[nid] = item, "workspace"
         children(item, nid, "workspace")
+        children(item.get("floating", {}), nid, "workspace.floating")
     return result, parents, kinds
 
 
@@ -280,6 +281,9 @@ def save_layout(document, workflow, tree, compositor, runtime):
             continue
         if node.kind in {"app", "kitty"}:
             matched_leaves += 1
+        if node.floating:
+            warnings.append(f"{node.id}: kept its floating declaration; saving floating placement is unsupported.")
+            continue
         ancestors = path_to(tree, live["id"])
         if any(a.get("type") == "floating_con" or a.get("name") == "__i3_scratch"
                or any(c.get("id") == live["id"] for c in a.get("floating_nodes", [])) for a in ancestors):

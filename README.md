@@ -266,6 +266,35 @@ layout = "splith"
     command = ["logs"]
 ```
 
+Floating windows belong to a workspace through `[[workspace.floating.window]]`.
+Use `[[workspace.floating.kitty]]` for a floating terminal with the usual panes,
+tabs, or session file:
+
+```toml
+[[workspace]]
+name = "dev"
+
+  [[workspace.floating.window]]
+  name = "calculator"
+  command = ["gnome-calculator"]
+  match = { class = "(?i)gnome-calculator" }
+
+  [[workspace.floating.kitty]]
+  name = "scratch-terminal"
+
+    [[workspace.floating.kitty.pane]]
+    name = "shell"
+```
+
+Floating declarations support the same launch, matching, identity, focus, and
+terminal settings as their tiled counterparts. Names must remain unique across
+all windows and containers. They do not accept tiling `size` or `order`, and
+floating containers are not supported. Position and dimensions are left to the
+compositor. New windows launch floating on their declared workspace; existing
+and adopted windows keep their placement on ordinary runs. `--sync` restores
+floating state and workspace assignment. `--save-layout` retains floating
+declarations unchanged; `--capture` still omits floating windows.
+
 Layouter builds new groups from real application windows using compositor IPC.
 It subscribes to window events before launching each application, waits for the
 actual window, and verifies every structural operation against a fresh tree.
@@ -501,7 +530,7 @@ layouter --dry-run --sync morning meadow
 layouter --sync morning meadow
 ```
 
-For i3/Sway, synchronization restores managed workspace assignments,
+For i3/Sway, synchronization restores declared floating state and managed workspace assignments,
 tiled state, nested parentage, relative managed-child order, container layouts,
 and declared percentages. When nesting differs, Layouter moves the managed
 windows through a temporary workspace and rebuilds their tree from the bottom
