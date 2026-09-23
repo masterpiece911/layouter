@@ -1,0 +1,90 @@
+session = "parity-{mode}"
+cwd = "src"
+env = { ROOT = "root", MODE = "{mode}" }
+focus = "tabs.main.shell"
+sync_displays = true
+[args.mode]
+position = 0
+choices = ["dev", "prod"]
+default = "dev"
+help = "Environment"
+[[workspace]]
+name = "code"
+number = 2
+layout = "splith"
+output = ["DP-1", "eDP-1"]
+[[workspace.window]]
+name = "editor"
+order = 0
+command = ["zed", "{project}"]
+env = { EDITOR = "yes" }
+[[workspace.kitty]]
+name = "inline"
+order = 1
+layout = "tall"
+cwd = "tools"
+env = { CHILD = "yes" }
+[[workspace.kitty.pane]]
+name = "server"
+command = ["echo", "{mode}"]
+[[workspace.kitty.pane]]
+name = "disabled-pane"
+enabled = false
+[[workspace.container]]
+name = "nested"
+order = 2
+layout = "splitv"
+size = 30
+[[workspace.container.window]]
+name = "browser"
+order = 0
+command = ["firefox"]
+[[workspace.container.kitty]]
+name = "tabs"
+order = 1
+env = { TERM_ENV = "term" }
+[[workspace.container.kitty.tab]]
+name = "main"
+layout = "splits"
+cwd = "tabs"
+env = { TAB_ENV = "tab" }
+[[workspace.container.kitty.tab.pane]]
+name = "shell"
+command = ["sh"]
+env = { PANE_ENV = "pane" }
+[[workspace.container.kitty.tab.pane]]
+name = "logs"
+after = "shell"
+location = "vsplit"
+[[workspace.container.window]]
+name = "last"
+order = 2
+command = ["last"]
+[[workspace.window]]
+name = "disabled"
+order = 3
+enabled = false
+command = ["disabled"]
+[[workspace.container]]
+name = "disabled-container"
+order = 4
+layout = "splith"
+enabled = false
+[[workspace.container.window]]
+name = "disabled-descendant"
+order = 0
+command = ["disabled"]
+[[workspace.floating.window]]
+name = "floating-window"
+command = ["app"]
+x = 10
+y = 20
+width = 500
+height = 400
+[[workspace.floating.kitty]]
+name = "floating-kitty"
+position = "center"
+width = 1000
+height = 700
+[[workspace.floating.kitty.pane]]
+name = "shell"
