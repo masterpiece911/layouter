@@ -8,9 +8,9 @@ import unittest
 class StandaloneTests(unittest.TestCase):
     def test_built_executable_preserves_cli_exit_codes(self):
         root = Path(__file__).resolve().parents[1]
-        subprocess.run([sys.executable, str(root / "scripts/build_zipapp.py")],
+        subprocess.run([sys.executable, str(root / "scripts/build_zipapp.py"), "--core"],
                        cwd=root, check=True, capture_output=True)
-        binary = root / "dist/layouter"
+        binary = root / "dist/layouter-core"
         with tempfile.TemporaryDirectory() as folder:
             missing = str(Path(folder) / "missing.toml")
             result = subprocess.run([str(binary), "--file", missing, "--check"],

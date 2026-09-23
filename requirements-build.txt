@@ -1,0 +1,4 @@
+# Maintainer tooling only; Layouter has no Python runtime dependencies.
+build==1.6.1
+setuptools==84.0.0
+wheel==0.48.0

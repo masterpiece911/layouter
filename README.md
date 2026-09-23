@@ -38,7 +38,9 @@ layouter --sync morning garden
 ## Installation
 
 Layouter requires Linux, Python 3.11 or newer, i3 or Sway, and kitty. It uses no
-third-party Python packages at runtime.
+third-party Python packages at runtime. The full release includes the React
+runtime; TSX workflows additionally require Node.js 22 or newer. npm is not
+needed to run installed workflows.
 
 The release artifact is a self-contained Python zip application. Put it
 somewhere on your `PATH`:
@@ -51,9 +53,23 @@ layouter --version
 To build that executable from a source checkout instead:
 
 ```sh
+npm ci --prefix react
+python3 scripts/build_react_runtime.py
 python3 scripts/build_zipapp.py
 install -Dm755 dist/layouter ~/.local/bin/layouter
 ```
+
+For a Python-only TOML build, use `python3 scripts/build_zipapp.py --core` and
+install `dist/layouter-core` as `layouter`. Full releases also provide a wheel
+and a Debian package. See [packaging and release verification](docs/packaging.md).
+
+## Experimental React workflows
+
+An optional React/TSX frontend supports reusable components, argument-dependent
+layouts, and a snapshot of connected displays. It uses the same Python
+validation and reconciler as TOML. TOML requires only Python; the bundled TSX evaluator additionally needs Node. See the
+[setup, example, and limitations](docs/react-workflows.md), including executable
+configuration trust and runtime behavior.
 
 ## A first workflow
 
