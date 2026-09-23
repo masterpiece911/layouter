@@ -15,7 +15,7 @@ To prepare a git checkout:
 ```sh
 npm ci --prefix react
 python3 scripts/build_react_runtime.py
-PYTHONPATH=src python3 -m layouter --check --file examples/responsive.tsx dev watchman prod
+PYTHONPATH=src python3 -m layouter --check --file examples/morning.tsx morning garden
 ```
 
 Developers working on the evaluator can instead build with `npm run build
@@ -24,10 +24,10 @@ Developers working on the evaluator can instead build with `npm run build
 runtime. Normal installations use the versioned portable runtime shipped with
 Python and require no override.
 
-To launch, place a workflow in `.dev/dev.tsx` or
-`~/.config/layouter/dev.tsx` and run `layouter dev watchman prod`. Local files
+To launch, place a workflow in `.dev/morning.tsx` or
+`~/.config/layouter/morning.tsx` and run `layouter morning garden`. Local files
 continue to override global files as a whole, including across formats. If both
-`dev.toml` and `dev.tsx` exist in the selected scope, Layouter reports ambiguity;
+`morning.toml` and `morning.tsx` exist in the selected scope, Layouter reports ambiguity;
 `--file` selects one exact file. A shadowed global scope is not evaluated.
 
 `--list` shows TSX filenames without importing their modules or inspecting their
