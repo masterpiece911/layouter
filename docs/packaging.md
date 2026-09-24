@@ -83,9 +83,12 @@ Build dependencies are distinct from end-user dependencies. Start from a clean
 checkout and use the committed npm lockfile:
 
 ```sh
-python3 -m pip install -r requirements-build.txt
-python3 scripts/build_release.py
+make release
 ```
+
+`make release` creates `.venv/build` and installs `requirements-build.txt` there
+without modifying system Python. Override `PYTHON` or `BUILD_VENV` when needed.
+Node.js, npm, and `dpkg-deb` must already be available.
 
 The release script installs locked npm build dependencies, runs renderer/type
 checks, builds the portable runtime, runs Python tests, builds the full/core
