@@ -53,3 +53,38 @@ jobs:
         with:
           name: 'layouter-release-${{ matrix.runner }}'
           path: dist/
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [python, react, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: layouter-release-ubuntu-24.04
+          path: dist/
+      - name: Verify release tag and checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+          version = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']
+          assert os.environ['RELEASE_TAG'] == f'v{version}', 'Tag must match the package version'
+          notes = pathlib.Path('CHANGELOG.md').read_text().split('\n', 2)[2]
+          pathlib.Path('release-notes.md').write_text(notes)
+          PY
+          cd dist
+          sha256sum --check SHA256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* \
+            --verify-tag --title "Layouter $RELEASE_TAG" \
+            --notes-file release-notes.md

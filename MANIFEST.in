@@ -1,4 +1,4 @@
-include LICENSE README.md pyproject.toml setup.py requirements-build.txt
+include LICENSE README.md CHANGELOG.md pyproject.toml setup.py requirements-build.txt
 include src/layouter/_react_runtime.zip
 recursive-include react *.mjs *.json *.ts *.tsx
 prune react/node_modules

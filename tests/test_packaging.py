@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 import shutil
 import subprocess
@@ -6,6 +7,8 @@ import sys
 import tempfile
 import unittest
 from zipfile import ZipFile
+
+from layouter import __version__
 
 
 class StandaloneTests(unittest.TestCase):
@@ -22,7 +25,7 @@ class StandaloneTests(unittest.TestCase):
             # A TOML-only invocation never extracts the React runtime. Supply a
             # packaging fixture so this test also runs before the npm build.
             with ZipFile(checkout / 'src/layouter/_react_runtime.zip', 'w') as archive:
-                archive.writestr('manifest.json', '{"version": "0.1.0"}')
+                archive.writestr('manifest.json', json.dumps({'version': __version__}))
             # Exercise spaces and shell quoting in both interpreter and install paths.
             interpreter = stage / "Python's directory" / 'python'
             interpreter.parent.mkdir()
@@ -44,7 +47,7 @@ class StandaloneTests(unittest.TestCase):
             result = subprocess.run([str(binary), '--version'], cwd=stage, env=env,
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), 'layouter 0.1.0')
+            self.assertEqual(result.stdout.strip(), f'layouter {__version__}')
             workflow = stage / 'workflow.toml'
             workflow.write_text('[[workspace]]\nnumber = 2\n')
             result = subprocess.run([str(binary), '--file', str(workflow), '--check'],
@@ -65,4 +68,4 @@ class StandaloneTests(unittest.TestCase):
             self.assertIn("Configuration file does not exist", result.stderr)
             result = subprocess.run([str(binary), "--version"], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0)
-            self.assertEqual(result.stdout.strip(), "layouter 0.1.0")
+            self.assertEqual(result.stdout.strip(), f'layouter {__version__}')

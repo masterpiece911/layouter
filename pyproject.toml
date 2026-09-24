@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "layouter"
-version = "0.1.0"
+version = "1.0.0"
 description = "Desired-state development workspaces for i3/Sway and kitty"
 readme = "README.md"
 license = "MIT"
