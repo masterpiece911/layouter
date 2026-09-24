@@ -1,4 +1,7 @@
-import { defineWorkflow, Container, Window } from '../src/index.js';
+import { defineWorkflow, Container, Window, Workspace } from '../src/index.js';
+const numberedWorkspace = <Workspace number={2} />;
+// @ts-expect-error a workspace needs a name or a number
+const missingWorkspaceDestination = <Workspace />;
 const workflow = defineWorkflow({
   args: { environment: { position: 0, choices: ['dev', 'prod'], default: 'dev' } },
   component({ args }) {

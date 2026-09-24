@@ -175,7 +175,8 @@ shared global workflow that should always launch missing elements in one place,
 set its `cwd` explicitly as well.
 
 Workspaces, GUI windows, kitty OS windows, containers, and tabs use `name` as
-their declaration identity. A pane can use its `title` as both identity and
+their declaration identity. A workspace with only `number` uses that number as
+its identity. A pane can use its `title` as both identity and
 presentation, as in the first example. Give it a `name` as well when the title
 is expected to change without changing identity:
 
@@ -428,8 +429,9 @@ behavior.
 ## Workspace destinations
 
 A numbered workspace targets the user's workspace with that number. For example,
-`name = "1"` or `number = 1` with a name uses an existing workspace such as
-`1: terminal`, preserving its name. If it is inactive, Layouter activates the
+`name = "1"` or `number = 1` uses an existing workspace such as
+`1: terminal`, preserving its name. A name is optional when `number` is supplied.
+If it is inactive, Layouter activates the
 ordinary workspace with `workspace number 1`, just like a numbered shortcut.
 Names without a leading number are matched exactly.
 

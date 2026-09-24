@@ -157,7 +157,12 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
 
     for workspace in entries(value.get("workspace", []), "workspace"):
         allowed(workspace, {"name", "number", "layout", "output", "enabled", "floating", *CHILDREN}, "workspace")
-        name, _ = element_name(workspace, "workspace")
+        if "name" not in workspace and "number" in workspace:
+            if type(workspace["number"]) is not int or workspace["number"] < 0:
+                raise ConfigError("workspace.number: expected a nonnegative integer")
+            name = str(workspace["number"])
+        else:
+            name, _ = element_name(workspace, "workspace")
         nid = workspace_id(name)
         add(nid, {"type": "workspace", "ref": name,
                   **{k: copy.deepcopy(v) for k, v in workspace.items() if k not in CHILDREN | {"floating"}}})

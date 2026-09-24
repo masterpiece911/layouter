@@ -35,9 +35,7 @@ export interface WorkflowProps {
   children?: ReactNode;
 }
 
-export interface WorkspaceProps {
-  name: string;
-  number?: number;
+export type WorkspaceProps = ({ name: string; number?: number } | { name?: string; number: number }) & {
   layout?: "splith" | "splitv" | "tabbed" | "stacking";
   output?: string | string[];
   enabled?: boolean;

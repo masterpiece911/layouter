@@ -28,6 +28,23 @@ class ConfigTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name)
 
+    def test_workspace_number_without_name(self):
+        for number in (0, 2, 10):
+            with self.subTest(number=number):
+                data = normalize_document({"workspace": [{"number": number, "window": [
+                    {"name": "browser", "command": ["firefox"]}]}]})
+                workflow = resolve(data, self.project)
+                self.assertEqual(workflow.by_id[f"workspace-{number}"].name, str(number))
+                self.assertEqual(workflow.by_id["browser"].parent, f"workspace-{number}")
+        for number in (True, -1, "2", 2.5):
+            with self.subTest(invalid=number), self.assertRaises(ConfigError):
+                resolve(normalize_document({"workspace": [{"number": number}]}), self.project)
+
+    def test_canonical_workspace_number_without_name(self):
+        data = basic()
+        data["workflows"]["default"]["nodes"]["code"] = {"type": "workspace", "number": 2}
+        self.assertEqual(resolve(data, self.project).by_id["code"].name, "2")
+
     def test_nested_floating_declarations(self):
         source = self.project / "floating.toml"
         source.write_text('''focus = "terminal.dev.shell"

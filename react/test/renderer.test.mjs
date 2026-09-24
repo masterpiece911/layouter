@@ -9,6 +9,11 @@ const context = { project: '/project', projectName: 'project', workflow: 'dev', 
 const window = name => h(Window, { name, command: ['app'] });
 const root = (...children) => h(Workflow, {}, h(Workspace, { name: 'code' }, ...children));
 
+test('workspace number does not require a name', () => {
+  const result = evaluateWorkflow(h(Workflow, {}, h(Workspace, { number: 2 })), context);
+  assert.deepEqual(result.workspace, [{ number: 2 }]);
+});
+
 test('real function components, fragments, arrays, context, state and argument hooks', () => {
   const Custom = createContext('default');
   function Nested() {

@@ -14,7 +14,7 @@ export function Workflow(props: WorkflowProps) {
 }
 
 export function Workspace(props: WorkspaceProps) {
-  return React.createElement("layouter-workspace", props);
+  return React.createElement<WorkspaceProps>("layouter-workspace", props);
 }
 
 export function Container(props: ContainerProps) {

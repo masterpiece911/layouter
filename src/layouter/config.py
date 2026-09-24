@@ -458,11 +458,19 @@ def resolve(config: dict, project: Path, name: str = "default",
             executable = str(cwd(executable, project, nw + ".executable"))
         if kind == "workspace" and "ref" in n:
             focus_aliases[line(n["ref"], nw + ".ref")] = nid
+        node_name = None
+        if kind == "workspace":
+            if "number" in n:
+                node_name = str(n["number"])
+                if "name" in n:
+                    node_name += ": " + line(n["name"], nw + ".name")
+            else:
+                node_name = line(n.get("name"), nw + ".name")
+        elif kind == "kitty":
+            node_name = line(n.get("name", nid), nw + ".name")
         nodes.append(Node(
             id=nid, kind=kind, parent=parent, cwd=ncwd, env=nenv,
-            name=(f"{n['number']}: {line(n.get('name'), nw + '.name')}" if "number" in n
-                  else line(n.get("name"), nw + ".name")) if kind == "workspace"
-                  else line(n.get("name", nid), nw + ".name") if kind == "kitty" else None,
+            name=node_name,
             layout=layout, command=command(n.get("command", []), nw + ".command", required=kind == "app"),
             match=match, adopt=boolean(n.get("adopt", False), nw + ".adopt"),
             tabs=ntabs, executable=executable,
