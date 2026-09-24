@@ -33,28 +33,24 @@ do not accidentally create multiple React/context instances at runtime.
 
 ## Why bundle WebAssembly?
 
-The prototype depended on a checkout's `node_modules` and an explicit runner
-path. That is useful for development but unsuitable as the default installation.
-A separate npm companion would add another installation and version lifecycle.
-Bundling native esbuild would require architecture-specific releases. The chosen
-runtime uses esbuild's portable WebAssembly distribution instead.
+The runtime bundles esbuild's portable WebAssembly transformer so one release
+can run across supported architectures. A separate npm companion would require
+another installation lifecycle; native esbuild would require platform-specific
+artifacts. WebAssembly trades startup cost and archive size for a self-contained
+runtime with no end-user npm setup.
 
-Before packaging, five fresh CLI processes on the development Linux container
-measured a median of **174 ms** with native esbuild and **708 ms** with
-esbuild-wasm for the equivalent TSX fixture. The runtime archive is approximately
-**4.23 MB compressed**. The portable path accepts roughly half a second of extra
-startup cost in exchange for one cross-architecture distribution with no npm
-setup. These measurements are local observations, not performance guarantees.
-Including archive extraction and integrity checks, the actual full zipapp
-measured **806 ms** median for TSX and **107 ms** for TOML; the full executable is
-about **4.16 MB**, versus **48 kB** for the core build. See
-`scripts/benchmark_packaging.py` for repeatable installed-artifact timing.
+For repeatable startup and artifact-size measurements, build a release and run:
 
-Native esbuild remains the source-development runner, selected explicitly with
-`LAYOUTER_REACT_RUNTIME=/absolute/path/to/react/runner.mjs`. It is not a separately
-supported release family. We can revisit native builds if measured desktop usage
-shows the portable startup cost is a problem. Migrating the Python core to Node
-is unnecessary for this packaging design.
+```sh
+python3 scripts/benchmark_packaging.py --runs 5
+```
+
+The benchmark compares fresh TOML, portable TSX, and native-override CLI
+processes. Compare results on the same machine and toolchain.
+
+Native esbuild is available for source development through
+`LAYOUTER_REACT_RUNTIME=/absolute/path/to/react/runner.mjs`. Normal installations
+use the bundled runtime.
 
 ## Runtime lifecycle
 

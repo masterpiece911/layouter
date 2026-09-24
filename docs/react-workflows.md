@@ -15,7 +15,7 @@ To prepare a git checkout:
 ```sh
 npm ci --prefix react
 python3 scripts/build_react_runtime.py
-PYTHONPATH=src python3 -m layouter --check --file examples/morning.tsx morning garden
+PYTHONPATH=src python3 -m layouter --check --file examples/responsive.tsx morning garden
 ```
 
 Developers working on the evaluator can instead build with `npm run build
@@ -181,7 +181,7 @@ need their desktop prerequisites.
 
 ## Release packaging
 
-The packaging decision and measured tradeoffs now live in
-[Packaging and releases](packaging.md). Releases bundle a portable WebAssembly
+See [Packaging and releases](packaging.md) for build instructions and the
+runtime packaging design. Releases bundle a portable WebAssembly
 transformer with React, so end users do not install npm dependencies. The Python
 core, normalizer, reconciler, and JSON evaluator boundary are unchanged.
