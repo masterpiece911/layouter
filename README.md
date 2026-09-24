@@ -30,6 +30,9 @@ make install
 This downloads the locked npm dependencies, builds the full executable, and
 installs it in `~/.local/bin`. Ensure that directory is on your `PATH`.
 Override the destination with `make install PREFIX=/your/prefix`.
+Select Python 3.11+ with `make install PYTHON=/path/to/python3.11`. The installed
+launcher uses that interpreter even if `python3` on `PATH` is an older version.
+Keep the selected interpreter (and its virtual environment, if used) available.
 See [packaging](docs/packaging.md) for wheels, Debian packages, and release builds.
 
 ## Turn a project into a workspace

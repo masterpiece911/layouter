@@ -37,5 +37,5 @@ build: zipapp source
 release: build-deps check
 	"$(BUILD_PYTHON)" scripts/build_release.py
 
-install: zipapp
-	install -Dm755 dist/layouter "$(DESTDIR)$(BINDIR)/layouter"
+install: runtime
+	"$(PYTHON)" scripts/build_zipapp.py --local-python --output "$(DESTDIR)$(BINDIR)/layouter"

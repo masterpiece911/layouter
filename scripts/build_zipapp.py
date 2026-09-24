@@ -2,7 +2,9 @@
 """Build the portable release executable, or an explicitly TOML-only core."""
 import argparse
 from pathlib import Path
+import shlex
 import stat
+import sys
 import tomllib
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
@@ -10,6 +12,8 @@ root = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--core', action='store_true', help='omit the optional React runtime; no npm build needed')
 p.add_argument('--output', type=Path, help='output executable path')
+p.add_argument('--local-python', action='store_true',
+               help='pin the launcher to this build interpreter for a local installation')
 args = p.parse_args()
 runtime = root / 'src/layouter/_react_runtime.zip'
 if not args.core and not runtime.is_file():
@@ -23,7 +27,13 @@ if not args.core:
             p.error('Runtime version is stale; rebuild it')
 destination = args.output or root / 'dist' / ('layouter-core' if args.core else 'layouter')
 destination.parent.mkdir(parents=True, exist_ok=True)
-destination.write_bytes(b'#!/usr/bin/env python3\n')
+if args.local_python:
+    # A shell launcher supports interpreter paths containing spaces and avoids
+    # kernel shebang length limits. Python reads the ZIP after this prefix.
+    launcher = f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$0" "$@"\n'
+else:
+    launcher = '#!/usr/bin/env python3\n'
+destination.write_bytes(launcher.encode('utf-8'))
 with ZipFile(destination, 'a', compression=ZIP_DEFLATED, compresslevel=9) as archive:
     paths = [(path.relative_to(root / 'src').as_posix(), path) for path in (root / 'src').rglob('*')
              if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc'

@@ -73,6 +73,13 @@ workflows before running them.
 
 ## Building releases
 
+For a local checkout installation, `make install PYTHON=/path/to/python3.11`
+builds a launcher pinned to the selected interpreter. It supports `PREFIX`,
+`BINDIR`, and `DESTDIR`; the destination does not change the interpreter path.
+Keep that Python installation available for as long as you use the launcher.
+Portable release zipapps built with `make zipapp` or `scripts/build_zipapp.py`
+continue to use `python3` from `PATH`, which must be Python 3.11 or newer.
+
 Maintainers need Python 3.11+, Node 22+, npm, Python's `build` package and the
 setuptools/wheel build dependencies, plus `dpkg-deb` for the Debian artifact.
 Build dependencies are distinct from end-user dependencies. Start from a clean
