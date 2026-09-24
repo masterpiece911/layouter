@@ -1,6 +1,7 @@
-"""Discover TOML workflows, bind arguments, and validate resolved desired state.
+"""Discover workflows, bind arguments, and validate resolved desired state.
 
-Relative paths and stable identities are resolved here, before any desktop access."""
+Relative paths and stable identities are resolved here, before reconciliation.
+Programmable sources may receive a read-only display snapshot during evaluation."""
 
 from __future__ import annotations
 
@@ -10,13 +11,13 @@ import os
 import re
 import shlex
 import string
-import tomllib
 from pathlib import Path
 from urllib.parse import quote
 
 from .errors import ConfigError
 from .model import Node, Pane, Tab, Workflow, digest, session_identity
 from .schema import normalize_document
+from .sources import ReactSource, source_for, discover_paths
 
 ID = re.compile(r"[A-Za-z0-9_-]+\Z")
 ARG = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -85,40 +86,18 @@ def load(project: Path, selected: str | None = None,
     else:
         global_dir = global_file.parent
     identifier(workflow, "workflow name")
-    if selected and force_global:
-        raise ConfigError("--file and --global cannot be used together")
-    local_dir = project / ".dev"
-    local = local_dir / f"{workflow}.toml"
-    global_path = global_dir / f"{workflow}.toml"
-    if selected:
-        explicit = Path(selected).expanduser()
-        if not explicit.is_absolute():
-            explicit = project / explicit
-        if not explicit.is_file():
-            raise ConfigError(f"Configuration file does not exist: {explicit}")
-        candidates = [(explicit, workflow)]
-    elif discover:
-        # Replace whole files by name so listing follows the same local-over-global
-        # precedence as launching; declarations from the two files never merge.
-        chosen = ({path.stem: path for path in sorted(global_dir.glob("*.toml"))}
-                  if global_dir.is_dir() else {})
-        if not force_global and local_dir.is_dir():
-            chosen.update({path.stem: path for path in sorted(local_dir.glob("*.toml"))})
-        candidates = [(path, name) for name, path in sorted(chosen.items())]
-    else:
-        chosen = global_path if force_global or not local.is_file() else local
-        if not chosen.is_file():
-            scope = "global " if force_global else ""
-            raise ConfigError(f"No {scope}workflow {workflow!r} found at {chosen}")
-        candidates = [(chosen, workflow)]
+    candidates = discover_paths(project, selected, global_dir, workflow, discover, force_global)
     result: dict = {"workflows": {}}
     sources: list[Path] = []
     for path, root_name in candidates:
-        try:
-            with path.open("rb") as file:
-                data = tomllib.load(file)
-        except (OSError, tomllib.TOMLDecodeError) as exc:
-            raise ConfigError(f"{path}: {exc}") from exc
+        source = source_for(path)
+        if isinstance(source, ReactSource):
+            # Defer executable configuration until resolution, never listing.
+            result.setdefault("_react_sources", {})[root_name] = source
+            result["workflows"][root_name] = {}
+            sources.append(path)
+            continue
+        data = source.materialize({})
         try:
             data = normalize_document(data, root_name)
         except ConfigError as exc:
@@ -351,15 +330,40 @@ def tabs(data: dict, project: Path, node_cwd: Path, node_env: dict, where: str) 
 
 
 def resolve(config: dict, project: Path, name: str = "default",
-            supplied: list[str] | None = None, sources: tuple[Path, ...] = ()) -> Workflow:
+            supplied: list[str] | None = None, sources: tuple[Path, ...] = (),
+            *, output_snapshot=None) -> Workflow:
     """Build a validated Workflow with expanded values, stable IDs, and checked tree references."""
     project = project.expanduser().resolve()
     sources = tuple(path.expanduser().resolve() for path in sources)
     if not project.is_dir():
         raise ConfigError(f"Project directory does not exist: {project}")
-    data = workflow_data(config, name)
+    source = config.get("_react_sources", {}).get(name)
+    if source is not None:
+        with source:
+            metadata = source.metadata()
+            keys(metadata, {"args"}, "React metadata")
+            arguments = bind(metadata, supplied or [])
+            document = source.materialize({
+                "project": str(project), "projectName": project.name, "workflow": name,
+                "args": arguments, "outputs": output_snapshot() if output_snapshot else [],
+            })
+        if "args" in document:
+            raise ConfigError("React document: declare args in defineWorkflow metadata, not <Workflow>")
+        document["args"] = metadata.get("args", {})
+        try:
+            materialized = normalize_document(document, name)
+        except ConfigError as exc:
+            raise ConfigError(f"{source.path}: Layouter schema validation failure: {exc}") from exc
+        settings = table(materialized.get("settings", {}), "settings")
+        keys(settings, {"timeout"}, "settings")
+        if "settings" in config:
+            materialized["settings"] = config["settings"]
+        data = workflow_data(materialized, name)
+        config = materialized
+    else:
+        data = workflow_data(config, name)
+        arguments = bind(data, supplied or [])
     keys(data, {"session", "args", "cwd", "env", "focus", "nodes", "description", "sync_displays"}, f"workflow {name}")
-    arguments = bind(data, supplied or [])
     context = {**arguments, "project": str(project), "project_name": project.name, "workflow": name}
     session = line(expand(text(data.get("session", "{workflow}"), "session"), context, "session"), "session")
     sid = session_identity(name, session, sources)

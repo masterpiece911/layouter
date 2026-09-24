@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parents[1]
 version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
 destination = root / "dist" / f"layouter-{version}-source.zip"
 destination.parent.mkdir(exist_ok=True)
-excluded_parts = {".git", ".pytest_cache", "__pycache__", ".venv", "build", "dist"}
+excluded_parts = {".git", ".pytest_cache", "__pycache__", ".venv", "build", "dist", "node_modules"}
 
 with ZipFile(destination, "w", ZIP_DEFLATED) as archive:
     for path in sorted(root.rglob("*")):

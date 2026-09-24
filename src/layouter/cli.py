@@ -28,7 +28,7 @@ def parser() -> argparse.ArgumentParser:
         epilog="Options go before the workflow. Everything after it is a workflow argument.")
     p.add_argument("-C", dest="directory", metavar="DIR", help="select project directory")
     source = p.add_mutually_exclusive_group()
-    source.add_argument("-f", "--file", help="use exactly this TOML file, relative to the selected project")
+    source.add_argument("-f", "--file", help="use exactly this TOML or TSX file, relative to the selected project")
     source.add_argument("--global", dest="global_only", action="store_true",
                         help="use the global workflow even when a local workflow exists")
     mode = p.add_mutually_exclusive_group()
@@ -76,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
                 destination = Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")) / "layouter" / (args.workflow + ".toml")
             else:
                 destination = project / ".dev" / (args.workflow + ".toml")
+            if destination.suffix == ".tsx":
+                raise ConfigError("--capture generates TOML; choose a .toml destination")
             if destination.exists() or destination.is_symlink():
                 raise ConfigError(f"Capture destination already exists: {destination}; choose another file or use --save-layout")
             with Compositor(args.timeout or 30) as i3:
@@ -95,12 +97,24 @@ def main(argv: list[str] | None = None) -> int:
             config.setdefault("settings", {})["timeout"] = args.timeout
         if args.list:
             for name in config["workflows"]:
+                if name in config.get("_react_sources", {}):
+                    print(f"{name} (TSX; executable, arguments not evaluated)")
+                    continue
                 data = workflow_data(config, name)
                 signature = " ".join((f"[{a['name']}={a['default']}]" if "default" in a else f"<{a['name']}>")
                                      for a in declarations(data))
                 print(f"{name}{' ' + signature if signature else ''}")
             return 0
-        workflow = resolve(config, project, args.workflow, args.workflow_args, sources)
+        if args.save_layout and args.workflow in config.get("_react_sources", {}):
+            raise ConfigError("--save-layout cannot rewrite programmable TSX workflows. "
+                              "Use a TOML workflow for round-trip layout saving.")
+
+        def output_snapshot():
+            with Compositor(args.timeout or 30) as compositor:
+                return compositor.outputs()
+
+        workflow = resolve(config, project, args.workflow, args.workflow_args, sources,
+                           output_snapshot=None if args.check else output_snapshot)
         if args.check:
             print(f"Valid: {workflow.name} | session={workflow.session!r} | id={workflow.session_id}")
             print(f"Project: {workflow.project}")

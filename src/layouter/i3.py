@@ -35,6 +35,7 @@ class RequestKind(IntEnum):
     """
 
     RUN_COMMAND = 0
+    GET_OUTPUTS = 3
     SUBSCRIBE = 2
     GET_TREE = 4
     GET_VERSION = 7
@@ -267,6 +268,14 @@ class Compositor(AbstractContextManager):
         if not isinstance(result, dict) or "id" not in result:
             raise BackendError("Compositor returned an invalid tree")
         return result
+
+    def outputs(self) -> list[dict]:
+        """Return only the display snapshot needed by programmable workflows."""
+        result = self.connection.request(RequestKind.GET_OUTPUTS)
+        if not isinstance(result, list) or any(not isinstance(item, dict) for item in result):
+            raise BackendError("Compositor returned invalid outputs")
+        return [{key: item[key] for key in ("name", "active", "primary", "rect", "scale")
+                 if key in item} for item in result]
 
     def command(self, value: str):
         """Execute compositor commands and reject any unsuccessful result."""

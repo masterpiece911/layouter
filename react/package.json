@@ -1,0 +1,30 @@
+{
+  "name": "@layouter/react",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && tsc -p test/tsconfig.json && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.28.1",
+    "react": "19.3.0",
+    "react-reconciler": "0.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.15",
+    "@types/react": "19.2.14",
+    "esbuild-wasm": "0.28.1",
+    "typescript": "5.9.3"
+  }
+}
