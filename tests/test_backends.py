@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 
 from layouter.config import resolve
 from layouter.errors import AmbiguousState, BackendError
-from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEADER, MAGIC, command_layout, marked, matches, path_to, quote, walk
+from layouter.i3 import Connection, Compositor, EVENT, Events, RequestKind, HEADER, MAGIC, command_layout, marked, matches, path_to, quote, walk, workspace_names
 from layouter.kitty import Kitty, Snapshot, SocketNotReady
 from layouter.runtime import Runtime
 from layouter.reconcile import Reconciler, check_executable
@@ -487,10 +487,36 @@ def frame(kind, payload):
 
 
 class InMemoryTransportTests(unittest.TestCase):
+    def test_workspace_binding_names_preserve_quotes_markup_and_command_delimiters(self):
+        name = '2: a "quote"; commas, and \\ paths'
+        config = {'config': '\n'.join([
+            '# bindsym Mod4+2 workspace number 2: ignored',
+            'exec echo "workspace number 2: ignored"',
+            f'bindcode --release 12 workspace --no-auto-back-and-forth number {quote(name)}; focus left',
+            'bindsym Mod4+3 workspace "3: mail"',
+        ])}
+        self.assertEqual(workspace_names(config), {2: {name}, 3: {'3: mail'}})
+
+    def test_raw_workspace_binding_variables_and_continuations(self):
+        config = {'config': '\n'.join([
+            'set $mod Mod4', 'set $ws1 "1: old"', 'set $ws1 "1: terminal"',
+            'set $ws10 "10: COMMS"',
+            'bindsym $mod+1 workspace number $ws1',
+            'bindsym $mod+0 \\\n workspace number $ws10',
+            'bindsym $mod+2 workspace number $unknown',
+        ])}
+        self.assertEqual(workspace_names(config), {1: {'1: terminal'}, 10: {'10: COMMS'}})
+
+    def test_invalid_workspace_configuration_is_an_error(self):
+        for config in (None, {}, {'config': 3}, {'config': '', 'included_configs': [{}]}):
+            with self.subTest(config=config), self.assertRaises(BackendError):
+                workspace_names(config)
+
     def test_named_requests_preserve_protocol_wire_values(self):
         for kind, wire_value in ((RequestKind.RUN_COMMAND, 0),
                                  (RequestKind.SUBSCRIBE, 2),
                                  (RequestKind.GET_TREE, 4),
+                                 (RequestKind.GET_CONFIG, 9),
                                  (RequestKind.GET_VERSION, 7)):
             with self.subTest(kind=kind):
                 stream = ByteSocket(frame(wire_value, {"success": True}))
@@ -538,6 +564,8 @@ class TreeHarness:
         self.workflow, self.state = workflow, state
         self.backend = Compositor.__new__(Compositor)
         self.compositor = "sway" if sway else "i3"
+        self.backend.connection = Mock()
+        self.backend.connection.request.return_value = {"config": ""}
         self.backend.mutable_ids = set()
         self.backend.safe_workspaces = set()
         self.backend.tree = lambda: copy.deepcopy(self.state)
@@ -567,8 +595,8 @@ class TreeHarness:
                 raise BackendError("No matching node.")
             if action.startswith("workspace --no-auto-back-and-forth "):
                 args = shlex.split(action[len("workspace --no-auto-back-and-forth "):])
-                number = int(args[1]) if args[0] == "number" else None
-                name = str(number) if number is not None else args[0]
+                name = args[1] if args[0] == "number" else args[0]
+                number = Compositor._workspace_number(name) if args[0] == "number" else None
                 target = next((item for item in walk(self.state)
                                if item.get("type") == "workspace" and
                                (item.get("num") == number if number is not None else item.get("name") == name)), None)
@@ -1021,6 +1049,7 @@ class PlacementTests(unittest.TestCase):
             self.assertEqual(harness.state["nodes"][0]["name"], "1: terminal")
             self.assertEqual(harness.state["nodes"][0]["marks"], [])
             self.assertEqual(harness.commands, ['workspace --no-auto-back-and-forth "1: terminal"'])
+            harness.backend.connection.request.assert_not_called()
 
     def test_missing_number_activates_normal_numbered_workspace(self):
         harness = self.numbered()
@@ -1028,7 +1057,55 @@ class PlacementTests(unittest.TestCase):
         live = harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
         self.assertEqual(live["num"], 1)
         self.assertEqual(live["name"], "1")
-        self.assertEqual(harness.commands[0], "workspace --no-auto-back-and-forth number 1")
+        self.assertEqual(harness.commands[0], 'workspace --no-auto-back-and-forth number "1"')
+
+    def test_missing_number_uses_expanded_regolith_binding(self):
+        name = '1: <span foreground="#ed8796">1 ⌘</span> WWW'
+        harness = self.numbered("1: browser")
+        harness.state["nodes"].clear()
+        harness.backend.connection.request.return_value = {
+            "config": 'set_from_resource $ws1 wm.workspace.01.name "1"\ninclude navigation',
+            "included_configs": [
+                {"variable_replaced_contents": 'set_from_resource $ws1 wm.workspace.01.name "1"'},
+                {"variable_replaced_contents": f'bindsym Mod4+1 workspace number {name}'},
+            ],
+        }
+        live = harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
+        self.assertEqual(live["name"], name)
+        self.assertEqual(harness.commands[0], f'workspace --no-auto-back-and-forth number {quote(name)}')
+        harness.backend.connection.request.assert_called_once_with(RequestKind.GET_CONFIG)
+        harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
+        self.assertEqual(len(harness.state["nodes"]), 1)
+        self.assertEqual(harness.state["nodes"][0]["name"], name)
+        self.assertFalse(any("rename" in command for command in harness.commands))
+
+    def test_missing_number_falls_back_to_workflow_name(self):
+        harness = self.numbered("1: browser")
+        harness.state["nodes"].clear()
+        live = harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
+        self.assertEqual(live["name"], "1: browser")
+
+    def test_missing_number_refuses_conflicting_desktop_names(self):
+        harness = self.numbered()
+        harness.state["nodes"].clear()
+        harness.backend.connection.request.return_value = {
+            "config": 'bindsym Mod4+1 workspace number "1: www"\nbindsym Mod4+2 workspace number "1: mail"'}
+        with self.assertRaisesRegex(AmbiguousState, "Multiple configured names"):
+            harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
+        self.assertEqual(harness.commands, [])
+
+    def test_numbered_desktop_binding_takes_precedence_over_workflow_label(self):
+        for config, expected in (
+            ('bindsym Mod4+1 workspace number 1', '1'),
+            ('bindsym Mod4+1 workspace number 1\nbindsym Mod4+t workspace number "1: terminal"',
+             '1: terminal'),
+        ):
+            with self.subTest(expected=expected):
+                harness = self.numbered("1: workflow")
+                harness.state["nodes"].clear()
+                harness.backend.connection.request.return_value = {'config': config}
+                live = harness.backend.prepare_launch(self.workflow, self.workflow.by_id["frontend"])
+                self.assertEqual(live['name'], expected)
 
     def test_duplicate_workspace_numbers_are_ambiguous(self):
         harness = self.numbered()

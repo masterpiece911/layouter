@@ -39,6 +39,7 @@ class RequestKind(IntEnum):
     SUBSCRIBE = 2
     GET_TREE = 4
     GET_VERSION = 7
+    GET_CONFIG = 9
 
 
 def walk(node: dict):
@@ -137,6 +138,76 @@ def quote(value: str) -> str:
 def command_layout(value: str) -> str:
     # GET_TREE/layout JSON says "stacked"; the runtime command says "stacking".
     return "stacking" if value == "stacked" else value
+
+
+def workspace_names(config: dict) -> dict[int, set[str]]:
+    """Read workspace destinations from bindings, never execute config commands.
+
+    i3 supplies expanded copies of all included files, including X resources.
+    Older compositors/Sway only supply raw config; resolve simple `set` values
+    there without reading files that may differ from the loaded configuration.
+    """
+    if not isinstance(config, dict) or not isinstance(config.get("config"), str):
+        raise BackendError("Compositor returned invalid configuration")
+    included = config.get("included_configs")
+    if included is not None:
+        if not isinstance(included, list) or any(
+                not isinstance(item, dict) or not isinstance(item.get("variable_replaced_contents"), str)
+                for item in included):
+            raise BackendError("Compositor returned invalid expanded configuration")
+        sources = [item["variable_replaced_contents"] for item in included]
+    else:
+        sources = [config["config"]]
+    names: dict[int, set[str]] = {}
+    variables: dict[str, str] = {}
+    for source in sources:
+        for line in source.replace("\\\n", "").splitlines():
+            line = line.strip()
+            if included is None:
+                setting = re.fullmatch(r"set\s+(\$\S+)\s+(.+)", line)
+                value = setting[2] if setting else line
+                # Longest first prevents $ws1 from consuming $ws10.
+                if variables:
+                    value = re.sub("|".join(re.escape(key) for key in sorted(variables, key=len, reverse=True)),
+                                   lambda match: variables[match.group()], value)
+                if setting:
+                    variables[setting[1]] = value
+                    continue
+                line = value
+            binding = re.match(r"bind(?:sym|code)\s+(?:--\S+\s+)*\S+\s+(.+)", line)
+            if not binding:
+                continue
+            # Split command lists only outside quoted strings. Keep markup and
+            # escaping intact; shlex would strip quotes inside Pango attributes.
+            commands, start, quoted, escaped = [], 0, False, False
+            value = binding[1]
+            for index, char in enumerate(value):
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    quoted = not quoted
+                elif char in ";," and not quoted:
+                    commands.append(value[start:index].strip())
+                    start = index + 1
+            commands.append(value[start:].strip())
+            for command in commands:
+                match = re.fullmatch(r"workspace\s+(?:--no-auto-back-and-forth\s+)?(?:number\s+)?(.+)", command)
+                if not match:
+                    continue
+                name = match[1].strip()
+                if name.startswith('"'):
+                    argument = re.fullmatch(r'"((?:\\.|[^"\\])*)"', name)
+                    if not argument:
+                        continue
+                    name = re.sub(r'\\(["\\])', r'\1', argument[1])
+                if included is None and "$" in name:
+                    continue
+                number = re.match(r"^[0-9]+", name)
+                if number:
+                    names.setdefault(int(number[0]), set()).add(name)
+    return names
 
 
 class Connection(AbstractContextManager):
@@ -373,7 +444,16 @@ class Compositor(AbstractContextManager):
 
     def _workspace_argument(self, workspace: Node) -> str:
         number = self._workspace_number(workspace.name)
-        return f"number {number}" if number is not None else quote(workspace.name)
+        if number is None:
+            return quote(workspace.name)
+        names = workspace_names(self.connection.request(RequestKind.GET_CONFIG)).get(number, set())
+        # Bare-number shortcuts do not specify a creation label. Prefer an
+        # explicit desktop name, but never guess between conflicting labels.
+        named = {name for name in names if not name.isdecimal()}
+        if len(named) > 1:
+            raise AmbiguousState(f"Multiple configured names match workspace {number}; refusing to guess")
+        name = next(iter(named), str(number) if names else workspace.name)
+        return f"number {quote(name)}"
 
     def _output_matches(self, output: str, live: dict, tree: dict) -> bool:
         return any(item.get("type") == "output" and item.get("name") == output

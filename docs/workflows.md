@@ -431,13 +431,22 @@ behavior.
 A numbered workspace targets the user's workspace with that number. For example,
 `name = "1"` or `number = 1` uses an existing workspace such as
 `1: terminal`, preserving its name. A name is optional when `number` is supplied.
-If it is inactive, Layouter activates the
-ordinary workspace with `workspace number 1`, just like a numbered shortcut.
+If the workspace does not exist, Layouter reads workspace destinations from the
+compositor's loaded keybindings and creates it with the configured desktop name.
+On i3 this includes expanded variables and included files, so Regolith's
+resource-based names and markup are preserved. On compositors exposing only raw
+configuration, simple `set` variables in the returned configuration are supported.
+If no matching destination is found, the workflow's name is used (`1: name`
+when both fields are supplied, or `1` for a number alone). Conflicting configured
+names for the same number produce an error instead of choosing one arbitrarily.
 Names without a leading number are matched exactly.
 
 Workspaces are destinations, not marked Layouter objects. Neither ordinary runs
 nor `--sync` rename them. Existing windows stay where they are during ordinary
 runs; `--sync` returns managed windows to their declared destinations.
+If an earlier run already created a bare-number workspace instead of the desktop's
+configured name, restore its name once in the compositor; Layouter preserves
+existing workspace names, including bare numbers.
 
 Set `output` to an ordered array of exact display connector names to choose
 where a new workspace opens. Layouter uses the first connected display:
