@@ -1,246 +1,177 @@
-# Layouter v0.1 design
+# Layouter design
 
-Status: minimal usable implementation, Python 3.11+, Linux, i3/Sway, and kitty.
+Layouter describes a desktop as desired state and reconciles that description
+with i3 or Sway and kitty. A workflow brings a project's tools together while
+preserving the work already happening in them.
 
-## Contract
+## Repository maxims
 
-Layouter treats configuration as desired desktop state:
+### Create, don't correct; preserve, don't prune
 
-> Create, don't correct; preserve, don't prune.
+An ordinary invocation creates missing elements. Existing applications, tabs,
+and panes keep their processes and arrangement. Undeclared windows remain part
+of the user's desktop, and removing or disabling a declaration does not close
+anything. Declared focus is applied at the end; `--no-focus` restores the
+original compositor focus.
 
-Every invocation discovers live state and creates missing elements. It does not
-restart, relocate, retitle, resize, or remove an existing managed element. Extra
-unmanaged windows and panes remain untouched. Layout and `size` affect initial
-creation only; requested final focus is the sole intentional update to an
-existing desktop. These statements describe ordinary invocation; `--sync` is
-the explicit corrective mode described below.
+Correction requires explicit intent. `--sync` restores declared arrangements
+of managed elements, and `--sync-displays` reapplies workspace display
+preferences. Neither mode prunes applications or restarts their processes.
 
-There is no daemon, persistent state database, process supervision, or pruning.
-Live i3/Sway marks and kitty remote-control state are authoritative.
+### Discover reality; do not maintain a second desktop
 
-## CLI and project context
+The compositor tree, Layouter marks, and kitty remote-control state are the
+source of truth about what exists. Each invocation discovers them anew. There
+is no daemon, process supervisor, or persistent state database. Runtime files
+support communication, locking, and diagnostics; they do not stand in for the
+live desktop.
 
-```text
-layouter [options] [workflow [workflow-args...]]
-layouter -C <directory> [workflow [workflow-args...]]
-```
+### Identity is separate from presentation
 
-`-C` is applied before configuration discovery, path expansion, default `cwd`,
-and session hashing. It selects a single project directory, with relative paths
-resolved from the current directory.
-Options precede the workflow because all later positional values are workflow
-arguments. The default workflow name is `default`.
+A declaration identifies an element independently of its launch command or
+current appearance. Changing a command does not replace a running process;
+changing a layout does not create a second window. Explicit names express
+continuity across edits. Presentation fields provide identity only where the
+configuration deliberately uses them as a shorthand, such as a pane's title
+when its name is omitted.
 
-`--check` parses and prints desired state without desktop I/O. `--dry-run`
-inspects the live desktop but creates nothing. `--no-focus` restores the
-original compositor focus after creation. `--list`, `--file`, `--global`, and
-`--timeout` are also implemented. `--sync` enables corrective reconciliation;
-`--dry-run --sync` reports its planned corrections without applying them.
+### One workflow, one meaning
 
-## Configuration resolution
+A selected workflow is a complete declaration. Project-local files take
+precedence over global files as a whole, without implicit merging. TOML and
+React/TSX feed the same desired-state model, validator, and reconciliation
+engine. A frontend changes how a workflow is authored, not how its desktop
+operations behave.
 
-Layouter selects exactly one workflow file:
+### Verify effects; do not guess
 
-| Invocation | First choice | Fallback |
-|---|---|---|
-| `layouter` | `.dev/default.toml` | `~/.config/layouter/default.toml` |
-| `layouter debug` | `.dev/debug.toml` | `~/.config/layouter/debug.toml` |
+Window discovery uses compositor events and fresh tree snapshots. Ambiguous
+matches and failed structural verification are errors. An inaccessible kitty
+socket does not make an existing terminal absent. Timing sleeps and
+application-specific assumptions cannot establish ownership or prove that an
+operation succeeded.
 
-`XDG_CONFIG_HOME` replaces `~/.config` when set. Selection is file-level: when
-the local file exists, no values or elements are read from the global file.
-When it is absent, Layouter tries the global file with the same workflow name.
-There is no fallback from a named workflow to `default.toml`.
+### Recover by rediscovering
 
-`--global` skips local discovery and selects the global file. `--file FILE`
-selects only that explicit file, relative to the project unless absolute. These
-options are mutually exclusive. `--list` shows the union of local and global
-workflow names, with a local filename shadowing the same global filename.
+Desktop operations are not a transaction. If a later operation fails,
+successfully created elements remain available. Their live identities allow
+the next invocation to continue from the desktop it actually finds. Recovery
+does not destroy useful work to reconstruct an imagined clean slate.
 
-Every TOML file contains exactly one complete workflow at its root. There are
-no grouped workflow tables, partial overrides, declaration merging, or explicit
-inheritance directives. `enabled = false` simply omits that declared element;
-it never removes a live one.
+## From workflow to desired state
 
-## Readable TOML model
+The project directory supplies relative paths, default working directories,
+and interpolation context. `-C` selects it before workflow resolution.
+`layouter morning garden` selects the `morning` workflow and binds `garden` as
+its first declared argument. Options precede the workflow name.
 
-The public identity field is `name` for workspaces, containers, GUI windows,
-kitty OS windows, and tabs. Containers may omit `name`; their stable identity is
-then derived from their parent and declared position. A pane may use just
-`title`, which serves as both its identity and initial visible title:
+Discovery selects `.dev/morning.toml` or `.dev/morning.tsx`, then falls back to
+the same name under the user's Layouter configuration directory. Two formats
+with the same name in the selected scope are ambiguous. `--file` selects an
+exact file; `--global` selects the global scope. A bare invocation selects
+`default`. Listing discovers names without executing TSX modules.
 
-```toml
-[[workspace.kitty.pane]]
-title = "tests"
-command = ["npm", "run", "test", "--", "--watch"]
-```
+TOML is declarative data. React/TSX is executable configuration that renders a
+single desired-state document. Function components, arguments, and a snapshot
+of connected displays allow composition and conditional layouts. The renderer
+owns no compositor connection and performs no desktop reconciliation. Python
+binds arguments, validates the resulting document, expands placeholders, and
+constructs the shared `Workflow` model.
 
-For an identity independent of presentation, provide both:
+TSX runs with the invoking user's permissions, including during validation.
+Selecting it authorizes execution; the evaluator is not a sandbox. Rendering
+uses one display snapshot per invocation rather than a subscription or an
+interactive update loop. `--check` uses an empty output snapshot and makes no
+desktop connection. `--dry-run` inspects live state and reports intended
+operations without applying them.
 
-```toml
-[[workspace.kitty.pane]]
-name = "tests"
-title = "Tests — watch mode"
-```
+Commands are argument arrays. Shell evaluation happens only when a workflow
+explicitly invokes a shell. Working directories and environment values inherit
+through the declaration tree; interpolation and quoting are resolved before
+launching applications.
 
-A workspace or container may recursively contain `window`, `kitty`, and
-`container` arrays. Compositor layout vocabulary is `splith`, `splitv`,
-`tabbed`, and `stacking`. `size` is an initial percentage.
+## Identity and ownership
 
-A GUI window supports `name`, `command`, `match`, `cwd`, `env`, `adopt`, `size`,
-and `enabled`. `match` may use `class`, `app_id`, `instance`, `title`, or
-`window_role`. No application names or commands are special-cased. With no
-matcher, event discovery accepts only one unambiguous new window from that
-launch. `adopt = true` requires an explicit matcher.
+A file-backed session is scoped by the canonical workflow-file path and its
+expanded session string. The project directory participates only when the
+session template includes it. This lets the same global workflow address the
+same running session from different launch locations, while a template such as
+`morning-{project}` expresses a separate session for each project.
 
-A kitty OS window supports `name`, `class`, `cwd`, `env`, `executable`,
-`config`, `options`, `size`, and either inline panes/tabs or a raw kitty session.
-Direct panes form one implicit tab. Explicit tabs use `[[workspace.kitty.tab]]`
-and contain their own panes. `session = ".dev/special.kitty"` is the escape
-hatch; it is mutually exclusive with inline `pane` and `tab` arrays.
+The identity components are hashed into stable keys. Compositor elements add
+their declaration identities to the session scope. Kitty pane identities also
+include their window and tab declarations. Explicit names keep identity
+independent of structural positions where supported; unnamed TOML containers
+use a position-derived identity. TSX containers require names.
 
-## Workflow arguments and interpolation
+Additive compositor marks and kitty user variables carry ownership in live
+state. Pane environments also expose `LAYOUTER_SESSION`, `LAYOUTER_ELEMENT`,
+and `LAYOUTER_PANE_ID`. Arbitrary matching windows are not owned implicitly:
+GUI adoption requires an explicit matcher and an unambiguous match.
 
-`[args]` maps names to declarations with `position`, `required`, optional
-`default`, `choices`, and `help`. Positions are unique and contiguous from zero.
-Extra, missing, and invalid-choice values are errors.
+Workspaces are destinations, not owned objects. Numbered destinations reuse the
+user's workspace with that number, preserving its name. Neither ordinary
+reconciliation nor synchronization renames workspaces.
 
-All supported string fields can interpolate `{arg}`, `{project}`,
-`{project_name}`, `{workflow}`, `{session}`, `{session_id}`, and node-specific
-`{element_id}`. `:q` shell-quotes and `:url` percent-encodes. Commands remain
-argv arrays and do not invoke a shell unless the configuration explicitly does.
+## Desktop reconciliation
 
-## Stable identity
+The desired tree contains workspaces, nested tiling containers, application
+windows, and kitty windows with tabs and panes. Floating applications belong
+directly to workspaces and can declare geometry or a named position. The model
+uses the compositor's layout vocabulary rather than inventing a parallel
+layout language.
 
-The session ID is the first 24 hexadecimal characters of SHA-256 over the JSON
-encoding of:
+The i3/Sway backend subscribes to events before launching an application,
+compares against a baseline tree, and identifies the resulting window. New
+structural groups are assembled from real windows and verified against fresh
+tree snapshots. Ordinary reconciliation may arrange newly created elements
+and attach missing children to surviving managed parents. It does not move
+existing descendants to rebuild a missing container or reapply an existing
+group's proportions.
 
-```text
-[canonical project directory, expanded session string]
-```
+Each managed kitty window has a deterministic socket in a private runtime
+directory. Layouter enables socket-only remote control for windows it launches,
+inspects their tabs and panes, and creates only missing declarations. A raw
+kitty session file delegates terminal contents to kitty; Layouter treats that
+window's internals as opaque.
 
-Compositor elements add their canonical identity path. Kitty panes add the
-kitty-window, tab, and pane identities. Commands, visible titles, cwd, layout,
-size, and file paths do not affect identity.
+Explicit synchronization extends the mutation boundary to existing managed
+elements. It restores workspace placement, tiling structure, managed order,
+layouts, declared sizes, floating geometry, and inline kitty tab arrangement.
+Display synchronization reapplies declared output preferences. Unmanaged
+siblings remain present, although a shared parent's corrected layout can affect
+their visible arrangement. Process commands, working directories, and
+environments remain those of the running processes.
 
-Compositor containers receive additive `layouter_*` marks. Kitty panes receive
-stable kitty user variables and process environment markers:
+## Capturing intent from the desktop
 
-```text
-LAYOUTER_SESSION
-LAYOUTER_ELEMENT
-LAYOUTER_PANE_ID
-```
+Capture produces a TOML draft from live state for the user to review.
+Save-layout updates an existing TOML workflow's arrangement while preserving
+launch declarations and retaining missing elements. It validates the resulting
+document and backs up the source before replacement. Neither operation mutates
+the running desktop. TSX remains authored program source rather than a target
+for automatic layout rewriting.
 
-Identity therefore survives title changes, layout changes, tab movement, and
-pane detachment within the same kitty process.
+## Architectural boundaries
 
-## i3/Sway backend
+`sources.py` handles workflow discovery and frontend evaluation; `schema.py`
+normalizes readable declarations; `config.py` binds arguments, interpolates,
+and validates; `model.py` holds desired-state records and identity rules.
+The React renderer and compiler live under `react/`, with the reconciler host
+adapter isolated from the public workflow API.
 
-The backend speaks the i3 binary IPC protocol directly and finds the socket via
-`I3SOCK`, `SWAYSOCK`, or the relevant compositor executable. Tree and mark
-inspection is shared between i3 and Sway, including native Sway `app_id` views.
+`i3.py` and `kitty.py` implement desktop protocols and backend operations.
+`reconcile.py` coordinates creation and explicit synchronization. `runtime.py`
+owns private files, launch logs, process creation, and invocation locks.
+`capture.py` translates live arrangements into TOML, while `cli.py` selects
+operations and reports results.
 
-For each missing GUI leaf, the backend:
+The release bundles the React evaluator with the Python implementation.
+`react_runtime.py` verifies and extracts that resource for TSX invocations;
+TOML execution needs no Node process. The evaluator exchanges versioned JSON
+messages with Python, keeping authoring machinery separate from desktop
+ownership and mutation.
 
-1. reuses any marked ancestors already present;
-2. focuses the nearest surviving managed ancestor;
-3. subscribes to window events and waits for acknowledgement;
-4. snapshots the baseline tree and launches the process;
-5. discovers one matching new managed view and marks it;
-6. moves only that newly created view when attachment is still necessary.
-
-This ordering avoids sleeps and workspace-switch races. Existing real windows
-are never moved. Ambiguous discovery is an error rather than a guess.
-
-After leaf creation, one compositor-neutral planner assembles wholly new
-structural groups from the bottom up. A first new child seeds the split; the
-second is moved beside it; the resulting common parent is discovered from a new
-tree snapshot and marked. Additional new children are attached in declaration
-order, then the declared layout and initial proportions are applied. The same
-path supports recursive `splith`, `splitv`, `stacking`, and `tabbed` groups on
-i3 and Sway.
-
-The mutation boundary is strict. Nodes created during the current invocation
-may be arranged. A missing child may be attached to a surviving marked parent.
-Existing descendants are not reparented to recreate a missing parent, and an
-existing group's layout or proportions are not reapplied. Layouter reports the
-preserved mismatch when exact nesting is skipped.
-
-A redundant container with one child may be flattened by the compositor. For a
-declared `tools: splitv` containing only `terminal`, alongside a workspace-level
-`browser`, the live tree may contain `terminal` and `browser` as direct siblings.
-If another `tools` child is declared later, create-only reconciliation will not
-move the existing terminal merely to reconstruct that otherwise invisible node.
-
-## Kitty backend
-
-Each managed kitty OS window has a deterministic Unix remote-control socket
-under `$XDG_RUNTIME_DIR/layouter/<session-id>/` (with a secure `/tmp` fallback).
-Layouter starts kitty with remote control enabled, uses `kitty @ ls` to inspect
-tabs and panes, and launches only absent panes. During ordinary reconciliation,
-existing tabs do not receive a layout command; the declared layout is applied
-only when Layouter creates that tab.
-
-If the compositor window exists but its socket cannot be inspected, the
-operation fails rather than treating the terminal as absent. A dead socket is
-stale only when no corresponding marked compositor window exists. Raw kitty
-sessions are opaque and support OS-window reconciliation only, not pane-level
-reconciliation.
-
-## Reconciliation and failures
-
-The reconciler walks the desired tree and classifies each element from live
-state. Existing elements are skipped without correction; missing leaves are
-created through their backend. A second invocation against unchanged live state
-therefore performs no creation.
-
-A desktop-wide operation cannot be atomic. Successful creations remain after a
-later failure, and the next invocation rediscovers them. Runtime sockets,
-bootstrap files, logs, and advisory locks exist only for live communication and
-diagnostics; they are not desired-state storage.
-
-## Explicit synchronization
-
-`--sync` runs after missing elements have been created. It corrects only
-Layouter-managed state and never prunes:
-
-- i3/Sway workspace identity and name, tiled state, nested parentage, relative
-  managed-child order, declared layout, and `size` percentages;
-- inline kitty pane-to-tab membership, relative declared-pane order, tab title,
-  and tab layout.
-
-When compositor structure differs, all declared managed leaves are moved to a
-temporary uniquely named workspace. Structural marks are cleared, leaves are
-returned to their declared workspaces in declaration order, and containers are
-rebuilt bottom-up. The staging workspace contains no unmanaged windows and
-normally disappears when emptied. Marks make an interrupted operation
-recoverable on the next invocation.
-
-Unmanaged windows and panes are not moved or closed. They may still share a
-parent whose layout or ratios are explicitly changed. Kitty tab reconstruction
-moves only declared panes; arbitrary internal geometry of the `splits` layout
-is not reconstructed. Raw kitty sessions remain opaque. Sync also does not
-restart processes, replace commands, change cwd/environment, or retitle
-individual panes.
-
-## Modules
-
-- `schema.py`: readable TOML normalization.
-- `config.py`: file selection, validation, and interpolation.
-- `model.py`: desired-state objects and deterministic identities.
-- `i3.py`: i3/Sway IPC, discovery, event ordering, and placement.
-- `kitty.py`: remote control and pane-level reconciliation.
-- `reconcile.py`: create-only and explicit corrective orchestration.
-- `runtime.py`: private runtime files, process launch, logs, and locking.
-- `cli.py`: command parsing, reporting, and exit codes.
-
-## References checked 2026-09-09
-
-- [i3 IPC](https://i3wm.org/docs/ipc.html)
-- [i3 user guide](https://i3wm.org/docs/userguide.html)
-- [Sway IPC](https://man.archlinux.org/man/sway-ipc.7.en)
-- [Sway commands](https://man.archlinux.org/man/sway.5.en)
-- [kitty remote control](https://sw.kovidgoyal.net/kitty/remote-control/)
-- [kitty session files](https://sw.kovidgoyal.net/kitty/sessions/)
-- [Python `tomllib`](https://docs.python.org/3/library/tomllib.html)
-- [Python `argparse`](https://docs.python.org/3/library/argparse.html)
+Configuration details belong in the [workflow reference](workflows.md) and
+[React guide](react-workflows.md). Build and distribution mechanics belong in
+[packaging](packaging.md); test procedures belong in [validation](validation.md).
