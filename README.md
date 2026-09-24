@@ -63,7 +63,7 @@ For a Python-only TOML build, use `python3 scripts/build_zipapp.py --core` and
 install `dist/layouter-core` as `layouter`. Full releases also provide a wheel
 and a Debian package. See [packaging and release verification](docs/packaging.md).
 
-## Experimental React workflows
+## React workflows
 
 An optional React/TSX frontend supports reusable components, argument-dependent
 layouts, and a snapshot of connected displays. It uses the same Python

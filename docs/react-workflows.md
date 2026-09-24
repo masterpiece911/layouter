@@ -1,4 +1,4 @@
-# Experimental React/TSX workflows
+# React/TSX workflows
 
 TSX is an optional programmable frontend. It renders a readable Layouter document,
 which Python validates and resolves into the same `Workflow` used by TOML. The
@@ -83,7 +83,7 @@ Ordinary function components, fragments, arrays, conditionals, React context,
 and synchronous hooks work. Use normal JavaScript composition, without a
 Layouter-specific conditional language. This is one committed render per
 invocation, not an interactive app: asynchronous loading, Suspense-driven
-workflows, and effect-driven subsequent layouts are outside this experiment.
+workflows, and effect-driven subsequent layouts are outside the workflow model.
 Keep rendering pure; use the supplied snapshot to decide desired state.
 
 The host primitives are `Workflow`, `Workspace`, `Container`, `Window`, `Kitty`,
@@ -110,7 +110,7 @@ as a dev dependency, or map `@layouter/react` to its `react/dist/index.d.ts`
 with your TypeScript `paths` configuration. The evaluator resolves this package
 and React to its own pinned runtime so imported components share one React and
 one Layouter context. Relative TS/TSX imports and statically bundled project
-packages are supported. The experimental bundler does not preserve a workflow's
+packages are supported. The bundler does not preserve a workflow's
 original `import.meta.url`; use `useLayouter().project` or component props for
 project-relative paths. Native addons and arbitrary dynamic imports are not a
 supported packaging contract yet.
@@ -137,14 +137,13 @@ explicit snapshots, as the renderer tests do. `--dry-run`, `--sync`,
 be safely round-tripped. Use a TOML workflow for saving live arrangements.
 `--capture` continues to generate TOML.
 
-## Executable configuration and release status
+## Executable configuration
 
 **TOML is data. TSX is executable configuration.** Selecting a TSX workflow runs
 its module with your user permissions, including in `--check` and `--dry-run`.
 Only use trusted workflows and imports. The evaluator is not a security sandbox.
-This experiment treats selecting a workflow, including the default workflow,
-as execution authorization; a stable release still needs an explicit decision
-about project-local trust/opt-in behavior.
+Selecting a workflow, including the default workflow, authorizes execution.
+Review project-local workflows before invoking them.
 
 Listing does not execute TSX. The runtime itself has no compositor integration;
 its only product is JSON desired state. Python remains the semantic validator

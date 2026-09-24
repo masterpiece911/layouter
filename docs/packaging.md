@@ -72,7 +72,8 @@ not a signature or a substitute for trusting the release. The Python/JS protocol
 has an explicit version. An incompatible external override fails clearly.
 
 TSX remains executable configuration, including in `--check`; packaging does not
-sandbox it. The project-local trust policy is a separate feature/release decision.
+sandbox it. Selecting a workflow authorizes execution; review project-local
+workflows before running them.
 
 ## Building releases
 
