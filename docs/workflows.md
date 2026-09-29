@@ -666,6 +666,9 @@ Absent descriptions are null in JSON. All three metadata helpers (`--list`,
 
 ## Metadata for launchers and integrations
 
+For an end-to-end discovery, form, and launch example, see
+[Building integrations with Layouter](integrations.md).
+
 Use JSON output to discover workflows and build argument forms without parsing
 TOML, TSX, or human-readable command output:
 

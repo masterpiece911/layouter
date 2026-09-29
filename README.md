@@ -134,7 +134,7 @@ export default defineWorkflow({
 
 For launcher integrations, use `--list --json`, `--list-args --json morning`,
 or `--describe --json morning` to read structured workflow metadata. See the
-[metadata API](docs/workflows.md#metadata-for-launchers-and-integrations).
+[integration guide](docs/integrations.md).
 
 ## Go deeper
 
@@ -142,6 +142,8 @@ or `--describe --json morning` to read structured workflow metadata. See the
   floating windows, kitty tabs and panes, capture, and CLI options.
 - [React workflows](docs/react-workflows.md): components, hooks, editor setup,
   and executable configuration behavior.
+- [Integrations](docs/integrations.md): build launchers and argument forms using
+  structured metadata and the CLI.
 - [Design](docs/design.md): identity, desired state, and reconciliation.
 - [Packaging](docs/packaging.md) and [validation](docs/validation.md): release
   artifacts, automated checks, and desktop testing.
