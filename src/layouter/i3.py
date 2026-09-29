@@ -573,9 +573,7 @@ class Compositor(AbstractContextManager):
             self.command(f"[con_id={int(created['id'])}] floating enable")
         self._attach(workflow, leaf, int(created["id"]))
         if leaf.floating:
-            self._apply_floating_geometry(workflow, leaf)
-            if not self._floating_matches(workflow, leaf, self.tree()):
-                raise BackendError(f"Could not set floating placement for {leaf.id}")
+            self._settle_floating_geometry(workflow, leaf, "set")
 
     @staticmethod
     def _children(workflow: Workflow, parent: str) -> list[Node]:
@@ -815,6 +813,33 @@ class Compositor(AbstractContextManager):
                 raise BackendError(f"Missing floating rectangle for {leaf.id}")
             self.command(f"[con_id={con_id}] move absolute position {x} px {y} px")
 
+    def _settle_floating_geometry(self, workflow: Workflow, leaf: Node, action: str):
+        """Require sustained geometry, not just an IPC command acknowledgment.
+
+        Wayland clients can commit an older configure after resize succeeds.
+        Observe a short stable interval and correct drift within the normal
+        backend timeout. Polling also catches changes without a window event.
+        Only new windows and explicit synchronization enter this bounded loop.
+        """
+        deadline = time.monotonic() + self.timeout
+        stable_since = None
+        self._apply_floating_geometry(workflow, leaf)
+        while True:
+            now = time.monotonic()
+            if self._floating_matches(workflow, leaf, self.tree()):
+                if stable_since is None:
+                    stable_since = now
+                if now - stable_since >= 0.5:
+                    return
+            else:
+                stable_since = None
+            if now >= deadline:
+                raise BackendError(f"Could not {action} floating placement for {leaf.id} "
+                                   "before the compositor timeout")
+            if stable_since is None:
+                self._apply_floating_geometry(workflow, leaf)
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+
     def _floating_matches(self, workflow: Workflow, leaf: Node, tree: dict) -> bool:
         live = marked(tree, workflow.mark(leaf.id))
         if live is None or not is_window(live):
@@ -911,9 +936,7 @@ class Compositor(AbstractContextManager):
                 raise BackendError(f"Cannot synchronize missing compositor element {leaf.id}")
             self.command(f"[con_id={int(live['id'])}] floating enable")
             self._attach(workflow, leaf, int(live["id"]))
-            self._apply_floating_geometry(workflow, leaf)
-            if not self._floating_matches(workflow, leaf, self.tree()):
-                raise BackendError(f"Could not restore floating placement for {leaf.id}")
+            self._settle_floating_geometry(workflow, leaf, "restore")
         self._initial_layout_and_sizes(workflow, force=True)
         return changes
 

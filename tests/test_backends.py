@@ -563,6 +563,7 @@ class TreeHarness:
     def __init__(self, workflow, state, *, sway=False):
         self.workflow, self.state = workflow, state
         self.backend = Compositor.__new__(Compositor)
+        self.backend.timeout = 2
         self.compositor = "sway" if sway else "i3"
         self.backend.connection = Mock()
         self.backend.connection.request.return_value = {"config": ""}
@@ -685,6 +686,54 @@ class TreeHarness:
 
 
 class FloatingTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 0.0
+        self.on_sleep = lambda: None
+
+        def advance(duration):
+            self.now += duration
+            self.on_sleep()
+
+        clock = patch("layouter.i3.time.monotonic", side_effect=lambda: self.now)
+        sleep = patch("layouter.i3.time.sleep", side_effect=advance)
+        clock.start()
+        sleep.start()
+        self.addCleanup(clock.stop)
+        self.addCleanup(sleep.stop)
+
+    def test_late_client_resize_is_corrected_on_launch_and_sync(self):
+        for sync in (False, True):
+            with self.subTest(sync=sync):
+                workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+                    "window": [{"name": "browser", "command": ["firefox"], "position": "center",
+                                "width": 900, "height": 600}]}}]}), Path.cwd())
+                window = {"id": 11, "type": "con", "app_id": "firefox", "marks": [], "nodes": [],
+                          "rect": {"x": 0, "y": 0, "width": 710, "height": 902}}
+                workspace = {"id": 1, "type": "workspace", "name": "dev", "nodes": [window],
+                             "rect": {"x": 4, "y": 27, "width": 1432, "height": 929}}
+                harness = TreeHarness(workflow, {"id": 0, "nodes": [workspace]}, sway=True)
+                backend = harness.backend
+                if sync:
+                    backend.place_new(workflow, workflow.by_id["browser"], window, set())
+                    window["rect"]["width"] = 710
+                start = self.now
+                commits = [0.1, 0.3]
+
+                def late_commit():
+                    if commits and self.now - start >= commits[0]:
+                        commits.pop(0)
+                        window["rect"].update(width=710, height=902)
+
+                self.on_sleep = late_commit
+                if sync:
+                    backend.sync(workflow)
+                else:
+                    backend.place_new(workflow, workflow.by_id["browser"], window, set())
+                self.assertEqual(commits, [])
+                self.assertGreaterEqual(self.now - start, 0.8)
+                self.assertEqual(window["rect"], {"x": 270, "y": 191, "width": 900, "height": 600})
+                self.on_sleep = lambda: None
+
     def test_launch_and_sync_floating_windows_on_i3_and_sway(self):
         document = {"workspace": [{"name": "dev", "window": [
             {"name": "editor", "command": ["editor"]}], "floating": {"window": [
@@ -717,6 +766,32 @@ class FloatingTests(unittest.TestCase):
                 self.assertTrue(backend._floating_matches(workflow, workflow.by_id["tools"], harness.state))
                 self.assertFalse(any("con_id=10" in command for command in harness.commands))
                 self.assertEqual(backend.sync_plan(workflow), [])
+
+    def test_resize_acknowledgment_precedes_geometry_commit(self):
+        workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
+            "window": [{"name": "tools", "command": ["tools"], "position": "center",
+                        "width": 900, "height": 600}]}}]}), Path.cwd())
+        window = {"id": 11, "type": "con", "window": 111, "marks": [], "nodes": [],
+                  "rect": {"x": 0, "y": 0, "width": 710, "height": 902}}
+        workspace = {"id": 1, "type": "workspace", "name": "dev", "nodes": [window],
+                     "rect": {"x": 4, "y": 27, "width": 1432, "height": 929}}
+        harness = TreeHarness(workflow, {"id": 0, "nodes": [workspace]}, sway=True)
+        pending = []
+
+        def command(value):
+            if "resize set" in value:
+                pending.append(value)
+            else:
+                harness.command(value)
+
+        def commit():
+            while pending:
+                harness.command(pending.pop(0))
+
+        harness.backend.command = command
+        self.on_sleep = commit
+        harness.backend.place_new(workflow, workflow.by_id["tools"], window, set())
+        self.assertEqual(window["rect"], {"x": 270, "y": 191, "width": 900, "height": 600})
 
     def test_floating_geometry_launch_drift_sync_and_partial_fields(self):
         for sway in (False, True):
@@ -810,6 +885,7 @@ class FloatingTests(unittest.TestCase):
         harness.backend.command = lambda command: None if "resize set" in command else harness.command(command)
         with self.assertRaisesRegex(BackendError, "Could not set floating placement"):
             harness.backend.place_new(workflow, workflow.by_id["tools"], window, set())
+        self.assertAlmostEqual(self.now, harness.backend.timeout)
 
     def test_floating_only_workspace_has_no_tiling_structure(self):
         workflow = resolve(normalize_document({"workspace": [{"name": "dev", "floating": {
