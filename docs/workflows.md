@@ -611,6 +611,10 @@ workflow belongs to it, including tokens beginning with `-`.
 | `-f FILE`, `--file FILE` | Use exactly this TOML file |
 | `--global` | Force the global workflow file |
 | `--list` | List discoverable workflows and argument signatures |
+| `--list-args` | Inspect arguments for one workflow without supplying values (imports selected TSX) |
+| `--describe` | Inspect one workflow’s source, description, and arguments (imports selected TSX) |
+| `--text` | Human-readable output with `--list`, `--list-args`, or `--describe` (default) |
+| `--json` | Versioned JSON output with `--list`, `--list-args`, or `--describe` |
 | `--check` | Parse, expand, and validate without desktop access |
 | `--dry-run` | Inspect live state and print the plan; combines with `--sync` or `--sync-displays` |
 | `--capture` | Create a new workflow draft from the live desktop |
@@ -637,3 +641,87 @@ layouter -C ~/src/garden evening
 Exit code `0` means success, `1` is a runtime or backend error, `2` is a
 configuration or command-line error, and `130` means the invocation was
 interrupted.
+
+
+## Workflow descriptions
+
+An optional top-level `description` summarizes what running the workflow will do:
+
+```toml
+description = "Open the editor, start the API server, and launch the browser."
+session = "development"
+```
+
+Descriptions are literal strings, with no argument or template expansion. Omit
+this field when there is no summary. For TSX, declare `description` alongside
+`args` and `component` in `defineWorkflow` so it is available without rendering.
+A definition-level description takes precedence over an existing rendered
+`<Workflow description={...}>` prop; a prop alone is unavailable to inspection.
+
+Read the summary with `layouter --describe morning` (or explicitly `--text`),
+or consume it as `workflow.description` with `layouter --describe --json morning`.
+Absent descriptions are null in JSON. All three metadata helpers (`--list`,
+`--list-args`, `--describe`) default to human-readable text and accept either
+`--text` or `--json` before the workflow name.
+
+## Metadata for launchers and integrations
+
+Use JSON output to discover workflows and build argument forms without parsing
+TOML, TSX, or human-readable command output:
+
+```sh
+layouter -C ~/src/garden --list --json
+layouter -C ~/src/garden --list-args --json morning
+layouter -C ~/src/garden --describe --json morning
+```
+
+All three modes use normal local/global precedence and support `--file` and
+`--global`. They do not bind argument values, expand templates, render layouts,
+or access the desktop. `--list-args` and `--describe` accept a workflow name
+(default: `default`), but no workflow argument values.
+
+Every JSON response has `"schema_version": 1`. Consumers should ignore unknown
+fields within a supported version. Successful stdout contains one JSON object;
+errors go to stderr with a nonzero exit code and no JSON result. Existing exit
+codes apply. No discovered workflows is a configuration error, as for `--list`.
+
+- `--list --json` adds `"workflows": [...]`, in workflow-name order.
+- `--describe --json` adds `"workflow": {...}` for the selected workflow.
+- `--list-args --json` adds `"workflow": "name"` and `"args": [...]`.
+
+Each workflow record contains `name`, `source` (absolute selected file path),
+`format` (`toml` or `tsx`), `description` (string or null), and `args`.
+Argument records are sorted by zero-based `position` and include `name` and
+`required`. They also include `default`, `choices`, and `help` when available.
+Required arguments omit `default`; optional arguments always include their
+effective default, including `""` when none was declared. For example:
+
+```json
+{"schema_version":1,"workflow":"morning","args":[{"name":"service","position":0,"required":true,"choices":["api","web"],"help":"Select service"}]}
+```
+
+An empty `args` array means no arguments. During discovery, TSX `args` is null,
+meaning unknown: `--list` never imports executable workflows. Explicitly
+inspecting a selected TSX workflow with `--list-args` or `--describe` imports its
+module to read `defineWorkflow` metadata, requiring Node and the React runtime.
+Module-level code runs, so only inspect trusted TSX files. The component is never
+rendered. TSX descriptions are read from `defineWorkflow.description`; discovery
+leaves them null until explicitly inspected. These modes validate argument declarations, but do
+not replace full workflow validation with `--check`.
+
+Python integrations can use the same records directly:
+
+```python
+from pathlib import Path
+from layouter.metadata import list_workflows, describe_workflow, list_args
+
+project = Path("/home/me/src/garden")
+workflows = list_workflows(project)
+metadata = describe_workflow(project, "morning")
+arguments = list_args(project, "morning")
+```
+
+These helpers return JSON-compatible lists/dictionaries without the CLI version
+envelope. All accept `selected="path/to/workflow.toml"` and `force_global=True`
+(as mutually exclusive source selections). `list_workflows` accepts a `workflow`
+keyword to name an explicit file, matching the CLI. Errors raise `ConfigError`.

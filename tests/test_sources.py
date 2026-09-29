@@ -162,6 +162,42 @@ class ReactIntegrationTests(SourceFixture):
         config, sources = self.load()
         return resolve(config, self.project, supplied=supplied, sources=sources, output_snapshot=outputs)
 
+    def test_cli_metadata_does_not_render(self):
+        (self.local / 'default.tsx').write_text(PREFIX + """
+console.log('module diagnostic');
+export default defineWorkflow({
+  description: 'Open the selected service tools',
+  args: { service: { position: 0, required: true, help: 'Select service' } },
+  component() { throw new Error('must not render'); }
+});
+""")
+        with patch('layouter.cli.Compositor', side_effect=AssertionError('no desktop')), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['-C', str(self.project), '--list-args', '--json']), 0)
+        payload = json.loads(out.getvalue())
+        self.assertEqual(payload['args'], [{'name': 'service', 'position': 0,
+                                          'required': True, 'help': 'Select service'}])
+        for flag in ('--json', '--text'):
+            with patch('layouter.cli.Compositor', side_effect=AssertionError('no desktop')), \
+                 contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(main(['-C', str(self.project), '--describe', flag]), 0)
+            if flag == '--json':
+                self.assertEqual(json.loads(out.getvalue())['workflow']['description'],
+                                 'Open the selected service tools')
+            else:
+                self.assertIn('Description: Open the selected service tools', out.getvalue())
+
+    def test_description_metadata_validated_on_resolution(self):
+        for description in ("'Open editor tools'", '42', 'null'):
+            code = BASIC.replace('defineWorkflow({component',
+                                 'defineWorkflow({description: ' + description + ', component')
+            if description.startswith("'"):
+                self.evaluate(code)
+            else:
+                with self.assertRaisesRegex(ConfigError, 'workflow description'):
+                    self.evaluate(code)
+
+
     def test_toml_tsx_parity(self):
         tsx = ROOT / 'tests/fixtures/react-parity.tsx'
         toml = ROOT / 'tests/fixtures/react-parity.toml'

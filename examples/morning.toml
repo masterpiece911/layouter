@@ -1,3 +1,4 @@
+description = "Open the morning development workspace for the selected microfrontend."
 # Output arrays list preferred displays in order; if none are connected, use compositor defaults.
 # Uncomment to reapply display preferences on every run.
 # sync_displays = true

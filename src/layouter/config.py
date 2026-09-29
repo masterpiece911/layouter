@@ -128,6 +128,13 @@ def workflow_data(config: dict, name: str) -> dict:
     return copy.deepcopy(table(workflows[name], f"workflows.{name}"))
 
 
+def workflow_description(data: dict) -> str | None:
+    """Read the optional, literal summary of what launching a workflow does."""
+    if "description" not in data:
+        return None
+    return text(data["description"], "workflow description", empty=True)
+
+
 def declarations(data: dict) -> list[dict]:
     """Validate argument declarations and return them in positional binding order."""
     values = data.get("args", [])
@@ -341,7 +348,8 @@ def resolve(config: dict, project: Path, name: str = "default",
     if source is not None:
         with source:
             metadata = source.metadata()
-            keys(metadata, {"args"}, "React metadata")
+            keys(metadata, {"args", "description"}, "React metadata")
+            workflow_description(metadata)
             arguments = bind(metadata, supplied or [])
             document = source.materialize({
                 "project": str(project), "projectName": project.name, "workflow": name,
@@ -350,6 +358,8 @@ def resolve(config: dict, project: Path, name: str = "default",
         if "args" in document:
             raise ConfigError("React document: declare args in defineWorkflow metadata, not <Workflow>")
         document["args"] = metadata.get("args", {})
+        if "description" in metadata:
+            document["description"] = metadata["description"]
         try:
             materialized = normalize_document(document, name)
         except ConfigError as exc:
@@ -364,6 +374,7 @@ def resolve(config: dict, project: Path, name: str = "default",
         data = workflow_data(config, name)
         arguments = bind(data, supplied or [])
     keys(data, {"session", "args", "cwd", "env", "focus", "nodes", "description", "sync_displays"}, f"workflow {name}")
+    workflow_description(data)
     context = {**arguments, "project": str(project), "project_name": project.name, "workflow": name}
     session = line(expand(text(data.get("session", "{workflow}"), "session"), context, "session"), "session")
     sid = session_identity(name, session, sources)

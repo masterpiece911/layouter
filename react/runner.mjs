@@ -65,7 +65,10 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
         throw new Error('Default export must be defineWorkflow({ args, component })');
       }
       selected = request.workflow;
-      reply({ ok: true, result: { args: definition.args ?? {} } });
+      reply({ ok: true, result: {
+        args: definition.args ?? {},
+        ...(definition.description === undefined ? {} : { description: definition.description }),
+      } });
     } else if (request.operation === 'render') {
       if (!definition || request.workflow !== selected) throw new Error('Read metadata for this workflow first');
       kind = 'workflow render';

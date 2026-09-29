@@ -3,6 +3,7 @@ const numberedWorkspace = <Workspace number={2} />;
 // @ts-expect-error a workspace needs a name or a number
 const missingWorkspaceDestination = <Workspace />;
 const workflow = defineWorkflow({
+  description: "Open development tools for the selected environment",
   args: { environment: { position: 0, choices: ['dev', 'prod'], default: 'dev' } },
   component({ args }) {
     const environment: 'dev' | 'prod' = args.environment;
@@ -20,3 +21,6 @@ const tiled = <Window name="w" command={['app']} width={100} />;
 // @ts-expect-error named placement and pixel position are mutually exclusive
 const conflicting = <Window name="w" command={['app']} floating position="center" x={10} />;
 const floating = <Window name="w" command={['app']} floating position="center" width={100} />;
+
+// @ts-expect-error description must be a string
+defineWorkflow({ description: 42, component() { return null; } });

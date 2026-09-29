@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import tomllib
@@ -10,7 +11,8 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .config import declarations, identifier, load, resolve, workflow_data
+from .config import identifier, load, resolve
+from .metadata import SCHEMA_VERSION, describe_workflow, list_workflows
 from .capture import capture, dumps, save_layout, write_document
 from .schema import normalize_document
 from .errors import ConfigError, LayouterError
@@ -33,6 +35,8 @@ def parser() -> argparse.ArgumentParser:
                         help="use the global workflow even when a local workflow exists")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--list", action="store_true", help="list workflows and arguments; no desktop access")
+    mode.add_argument("--list-args", action="store_true", help="inspect selected workflow arguments (imports TSX); no desktop access")
+    mode.add_argument("--describe", action="store_true", help="inspect selected workflow metadata (imports TSX); no desktop access")
     mode.add_argument("--check", action="store_true", help="validate the selected workflow; no desktop access")
     mode.add_argument("--dry-run", action="store_true", help="inspect live state and print a plan without changing it")
     mode.add_argument("--capture", action="store_true", help="create a workflow draft from the live desktop")
@@ -44,6 +48,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--no-focus", action="store_true", help="restore original compositor focus after creation")
     p.add_argument("--timeout", type=float, metavar="SECONDS", help="IPC/discovery timeout per operation (default: 30)")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    output = p.add_mutually_exclusive_group()
+    output.add_argument("--text", action="store_true", help="human-readable output for metadata helpers (default)")
+    output.add_argument("--json", action="store_true", help="machine-readable output for --list, --list-args, or --describe")
     p.add_argument("workflow", nargs="?", default="default")
     p.add_argument("workflow_args", nargs=argparse.REMAINDER)
     return p
@@ -54,6 +61,10 @@ def main(argv: list[str] | None = None) -> int:
     p = parser()
     args = p.parse_args(argv)
     try:
+        if (args.json or args.text) and not (args.list or args.list_args or args.describe):
+            raise ConfigError("--json/--text require --list, --list-args, or --describe")
+        if (args.list_args or args.describe) and args.workflow_args:
+            raise ConfigError("--list-args/--describe do not accept workflow argument values")
         project = Path.cwd()
         if args.directory is not None:
             path = Path(args.directory).expanduser()
@@ -89,22 +100,45 @@ def main(argv: list[str] | None = None) -> int:
             for warning in warnings:
                 print(f"Warning: {warning}", file=sys.stderr)
             return 0
-        config, sources = load(project, args.file, workflow=args.workflow, discover=args.list,
-                               force_global=args.global_only)
-        if args.timeout is not None:
-            if not math.isfinite(args.timeout) or args.timeout <= 0:
-                raise ConfigError("--timeout must be a finite positive number")
-            config.setdefault("settings", {})["timeout"] = args.timeout
-        if args.list:
-            for name in config["workflows"]:
-                if name in config.get("_react_sources", {}):
+        if args.list or args.list_args or args.describe:
+            if args.list:
+                records = list_workflows(project, args.file, workflow=args.workflow,
+                                         force_global=args.global_only)
+                payload = {"workflows": records}
+            else:
+                record = describe_workflow(project, args.workflow, selected=args.file,
+                                           force_global=args.global_only)
+                records = [record]
+                payload = ({"workflow": record["name"], "args": record["args"]}
+                           if args.list_args else {"workflow": record})
+            if args.json:
+                print(json.dumps({"schema_version": SCHEMA_VERSION, **payload}, ensure_ascii=False))
+                return 0
+            for record in records:
+                name = record["name"]
+                if record["args"] is None:
                     print(f"{name} (TSX; executable, arguments not evaluated)")
                     continue
-                data = workflow_data(config, name)
                 signature = " ".join((f"[{a['name']}={a['default']}]" if "default" in a else f"<{a['name']}>")
-                                     for a in declarations(data))
-                print(f"{name}{' ' + signature if signature else ''}")
+                                     for a in record["args"])
+                if not args.list_args:
+                    print(f"{name}{' ' + signature if signature else ''}")
+                if args.describe:
+                    print(f"Source: {record['source']} ({record['format']})")
+                    if record["description"] is not None:
+                        print(f"Description: {record['description']}")
+                if args.list_args or args.describe:
+                    for arg in record["args"]:
+                        detail = "required" if arg["required"] else f"default={arg['default']!r}"
+                        if "choices" in arg:
+                            detail += f"; choices={arg['choices']!r}"
+                        print(f"{arg['position']}: {arg['name']} ({detail})" +
+                              (f" — {arg['help']}" if arg.get("help") else ""))
             return 0
+        config, sources = load(project, args.file, workflow=args.workflow,
+                               force_global=args.global_only)
+        if args.timeout is not None:
+            config.setdefault("settings", {})["timeout"] = args.timeout
         if args.save_layout and args.workflow in config.get("_react_sources", {}):
             raise ConfigError("--save-layout cannot rewrite programmable TSX workflows. "
                               "Use a TOML workflow for round-trip layout saving.")

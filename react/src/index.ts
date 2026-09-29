@@ -16,6 +16,8 @@ export type BoundArgs<A extends ArgumentDeclarations> = {
   [K in keyof A]: A[K] extends { choices: readonly (infer C extends string)[] } ? C : string
 };
 export interface WorkflowDefinition<A extends ArgumentDeclarations = ArgumentDeclarations> {
+  /** A summary of what running this workflow will do, available before rendering. */
+  description?: string;
   args?: A;
   component: ComponentType<{ args: BoundArgs<A> }>;
 }

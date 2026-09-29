@@ -132,6 +132,10 @@ export default defineWorkflow({
 });
 ```
 
+For launcher integrations, use `--list --json`, `--list-args --json morning`,
+or `--describe --json morning` to read structured workflow metadata. See the
+[metadata API](docs/workflows.md#metadata-for-launchers-and-integrations).
+
 ## Go deeper
 
 - [Workflow reference](docs/workflows.md): arguments, nested layouts, displays,

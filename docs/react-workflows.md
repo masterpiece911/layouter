@@ -31,7 +31,11 @@ continue to override global files as a whole, including across formats. If both
 `--file` selects one exact file. A shadowed global scope is not evaluated.
 
 `--list` shows TSX filenames without importing their modules or inspecting their
-argument declarations. Do not evaluate TSX for generic shell completion.
+argument declarations; `--list --json` represents their arguments as null.
+`--list-args --json workflow` and `--describe --json workflow` explicitly import
+one selected module to read argument metadata without rendering its component.
+These require the React runtime and execute module-level code. Do not evaluate
+TSX for generic shell completion. See the [metadata API](workflows.md#metadata-for-launchers-and-integrations).
 
 ## Authoring
 
@@ -50,6 +54,7 @@ function Tools() {
 }
 
 export default defineWorkflow({
+  description: "Open development tools for the selected service.",
   args: {
     environment: {
       position: 0, default: 'dev', choices: ['dev', 'prod'],
@@ -71,6 +76,10 @@ export default defineWorkflow({
   },
 });
 ```
+
+The optional `defineWorkflow.description` string summarizes what launching the
+workflow will do. `--describe` shows it in text; `--describe --json` includes it
+in `workflow.description`, without rendering the component.
 
 Argument declarations belong to `defineWorkflow`, before rendering. Python
 applies its existing `position`, `required`, `default`, `choices`, and `help`

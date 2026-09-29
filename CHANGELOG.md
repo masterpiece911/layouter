@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Fix unreliable floating-window size and placement during client startup and
+  `--sync` by retrying until geometry remains stable within the compositor timeout.
+- Validate optional workflow descriptions and expose TSX definition descriptions
+  through `--describe`; add explicit `--text` alongside `--json` for metadata helpers.
+- Add `--list-args`, `--describe`, and versioned JSON output for workflow
+  discovery and metadata, plus matching helpers in `layouter.metadata`.
+  Selected TSX argument inspection imports metadata without rendering layouts.
+
 ## 1.0.0 — 2026-09-24
 
 First stable release of Layouter, a desired-state workspace launcher for Linux,
