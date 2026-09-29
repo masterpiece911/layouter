@@ -11,9 +11,13 @@ restore a closed test pane while your editor and development server keep running
 
 ## Install
 
-You need Linux, Python 3.11+, i3 or Sway, and kitty. React/TSX workflows also
-need Node.js 22+. Release executables bundle the React runtime; npm is only a
-build dependency.
+You need Linux, Python 3.11+, i3 or Sway, and kitty 0.40.0+ for Layouter's full
+feature suite. React/TSX workflows also need Node.js 22+. Release executables
+bundle the React runtime; npm is only a build dependency.
+
+The kitty minimum is required for pane placement with `after`, which uses
+`launch --next-to`, introduced in [kitty 0.40.0](https://sw.kovidgoyal.net/kitty/changelog/).
+Check your installed version with `kitty --version`.
 
 Install a release executable:
 
