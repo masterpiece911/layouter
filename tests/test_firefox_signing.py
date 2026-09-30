@@ -85,6 +85,33 @@ class SigningTests(unittest.TestCase):
                 self.assertFalse((self.root / 'dist/layouter-firefox-1.0.0.xpi').exists())
                 self.assertEqual(self.sums.read_text(), self.original_sums)
 
+    def test_recovery_accepts_reserialized_manifest_without_credentials_or_submission(self):
+        recovered = self.root / 'approved.xpi'
+        with ZipFile(recovered, 'w') as archive:
+            for name, content in signing.payload(self.unsigned).items():
+                archive.writestr(name, json.dumps(json.loads(content), indent=2)
+                                 if name == 'manifest.json' else content)
+            archive.writestr('META-INF/cose.sig', 'test-only signature metadata')
+        with patch.dict(os.environ, {'WEB_EXT_API_KEY': '', 'WEB_EXT_API_SECRET': ''}), \
+                patch.object(signing.subprocess, 'run') as command:
+            result = signing.sign(self.root, 'v1.0.0', 'unused', recovered)
+        command.assert_not_called()
+        self.assertEqual(result.read_bytes(), recovered.read_bytes())
+
+    def test_manifest_unicode_formatting_allowed_but_semantic_changes_rejected(self):
+        original = {'manifest.json': '{"name": "Layouter — companion"}'.encode()}
+        recovered = self.root / 'approved.xpi'
+        for manifest, accepted in (({'name': 'Layouter — companion'}, True),
+                                   ({'name': 'Different companion'}, False)):
+            with ZipFile(recovered, 'w') as archive:
+                archive.writestr('manifest.json', json.dumps(manifest))
+                archive.writestr('META-INF/cose.sig', 'test-only signature metadata')
+            if accepted:
+                signing.verify_signed_payload(original, recovered)
+            else:
+                with self.assertRaisesRegex(ValueError, 'manifest.json'):
+                    signing.verify_signed_payload(original, recovered)
+
     def test_no_download_blocks_release(self):
         with patch.object(signing.subprocess, 'run'):
             with self.assertRaisesRegex(ValueError, 'exactly one signed XPI'):

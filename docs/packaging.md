@@ -189,6 +189,8 @@ Python package version and extension version match before submitting anything.
 After the test/build matrix succeeds, signing extracts the checksum-verified
 unsigned XPI, submits that exact payload, and waits up to 15 minutes for approval.
 The downloaded XPI must contain signature metadata and the same extension files.
+Manifest JSON may be reserialized by Mozilla; its values must remain identical,
+and every other payload file must match byte for byte.
 Firefox performs cryptographic signature verification on installation. CI adds
 `layouter-firefox-VERSION.xpi` to `SHA256SUMS`, saves the combined artifacts as
 `layouter-signed-release`, and publishes them on the GitHub release. The unsigned
@@ -205,7 +207,15 @@ blindly rerunning signing can encounter an already-submitted version. If signing
 finished but GitHub publication failed, recover the existing XPI/checksums from
 the `layouter-signed-release` Actions artifact instead of resubmitting. Otherwise
 download the approved XPI from AMO and finish the release manually, updating its
-checksum. Do not overwrite an existing release tag to work around review.
+checksum. Import that approved file without another submission using:
+
+```sh
+python3 scripts/sign_firefox_extension.py --tag vVERSION --signed-xpi /path/to/approved.xpi
+```
+
+This verifies the payload against the checksum-verified unsigned archive and adds
+the signed archive to `SHA256SUMS` without requiring signing credentials.
+Do not overwrite an existing release tag to work around review.
 
 Self-distributed installation is through Firefox's **Install Add-on From File**
 using the signed XPI. This workflow does not add an extension update manifest or

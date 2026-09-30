@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Accept Mozilla manifest JSON reserialization during signed-companion verification,
+  while rejecting changed values or other payload changes. Allow importing an
+  already approved XPI without resubmitting it for signing.
+
 ## 1.1.0 — 2026-09-30
 
 - Sign the Firefox companion through Mozilla's unlisted channel on version-tag
