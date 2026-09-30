@@ -1,0 +1,70 @@
+name: Recover approved Layouter 1.1.0
+on:
+  push:
+    branches: [codex/recover-1.1.0]
+    paths: [.github/workflows/recover-release.yml]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: layouter-release-ubuntu-24.04
+          run-id: 36756704417
+          github-token: ${{ github.token }}
+          path: dist/
+      - name: Verify original release artifacts
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+      - name: Download existing approved XPI without resubmission
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, hmac, json, os, pathlib, time, urllib.request
+          def encode(value):
+              return base64.urlsafe_b64encode(value).rstrip(b'=')
+          now = int(time.time())
+          header = encode(b'{"alg":"HS256","typ":"JWT"}')
+          claims = encode(json.dumps({'iss': os.environ['AMO_JWT_ISSUER'], 'iat': now, 'exp': now + 300}).encode())
+          message = header + b'.' + claims
+          signature = encode(hmac.new(os.environ['AMO_JWT_SECRET'].encode(), message, hashlib.sha256).digest())
+          token = (message + b'.' + signature).decode()
+          class Redirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  result = super().redirect_request(req, fp, code, msg, headers, newurl)
+                  if result:
+                      result.remove_header('Authorization')
+                  return result
+          request = urllib.request.Request(
+              'https://addons.mozilla.org/firefox/downloads/file/5073285/9495f5a00b514bc989b2-1.1.0.xpi',
+              headers={'Authorization': 'JWT ' + token})
+          with urllib.request.build_opener(Redirect()).open(request, timeout=60) as response:
+              data = response.read()
+          assert hashlib.sha256(data).hexdigest() == 'f59b4f801aef211e781850f3d30584a32fafa72bd7c7f6b17b3151db2ec579d4', 'Approved XPI differs from the locally inspected file'
+          pathlib.Path('/tmp/approved.xpi').write_bytes(data)
+          PY
+      - name: Verify and import approved companion
+        run: python3 scripts/sign_firefox_extension.py --tag v1.1.0 --signed-xpi /tmp/approved.xpi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: layouter-signed-release
+          path: dist/
+          if-no-files-found: error
+      - name: Publish verified original release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          python3 - <<'PY'
+          from pathlib import Path
+          changelog = Path('CHANGELOG.md').read_text()
+          section = next(part for part in changelog.split('\n## ') if part.startswith('1.1.0 — '))
+          Path('/tmp/release-notes.md').write_text('## ' + section.strip() + '\n')
+          PY
+          gh release create v1.1.0 dist/* --verify-tag --title 'Layouter v1.1.0' --notes-file /tmp/release-notes.md
