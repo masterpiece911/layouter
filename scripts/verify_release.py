@@ -2,6 +2,7 @@
 """Exercise artifacts away from the checkout, without npm, overrides or network installs."""
 from pathlib import Path
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -85,3 +86,20 @@ with tempfile.TemporaryDirectory(prefix='layouter-release-test-') as temporary:
     run([dpkg, '-x', deb, unpacked], stage, dict(os.environ))
     smoke([unpacked / 'usr/bin/layouter'])
     print('PASS: Debian installed file layout; TOML/TSX')
+
+    native_manifest = json.loads((unpacked / 'usr/lib/mozilla/native-messaging-hosts/org.layouter.firefox.json').read_text())
+    assert native_manifest['allowed_extensions'] == ['firefox@layouter.dev']
+    assert native_manifest['path'] == '/usr/bin/layouter-firefox-host'
+    assert (unpacked / 'usr/bin/layouter-firefox-host').stat().st_mode & 0o111
+    assert (virtual / 'bin/layouter-firefox-host').is_file()
+    # No XDG_RUNTIME_DIR: proves host dispatch without waiting for native input.
+    result = run([full, '--firefox-host'], project, env, 1)
+    assert 'requires XDG_RUNTIME_DIR' in result.stderr
+    with ZipFile(ROOT / 'dist' / f'layouter-firefox-{VERSION}-unsigned.xpi') as archive:
+        assert set(archive.namelist()) == {'background.js', 'badges.js', 'icon.svg', 'protocol.js', 'manifest.json'}
+        manifest = json.loads(archive.read('manifest.json'))
+        assert set(manifest['permissions']) == {'sessions', 'nativeMessaging', 'storage', 'tabs'}
+        assert manifest['browser_specific_settings']['gecko']['id'] == 'firefox@layouter.dev'
+        assert manifest['incognito'] == 'not_allowed'
+        assert manifest['browser_specific_settings']['gecko']['data_collection_permissions'] == {'required': ['none']}
+    print('PASS: Firefox host entry points, restricted native manifest and companion archive')

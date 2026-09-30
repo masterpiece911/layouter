@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- Avoid immediately synchronizing Firefox tabs a second time after creating a
+  window. Loading pages and redirects no longer cause duplicate tabs during the
+  same invocation that creates them.
+
+- Allow Firefox tab synchronization to complete while newly created pages are
+  loading or redirecting. URL comparison still decides when an existing managed
+  tab needs a preserved old copy plus a fresh declared tab.
+
+- Show a green L toolbar badge for the selected managed Firefox tab, with a
+  declared-identity tooltip. Clear it for unmanaged, duplicated and out-of-parent
+  tabs; show an amber warning for conflicting windows. No new permissions or
+  content scripting are required.
+
+- Keep the original Firefox tab tracked when it is duplicated, clearing only the
+  duplicate's Layouter metadata passively. Existing duplicate tab identities use
+  the lowest runtime tab ID when there is no prior tracking observation. Both
+  tabs remain open; duplicate window identities still fail as ambiguous.
+
+- Place declared Firefox tabs leftmost during `--sync`, in declaration order
+  within the pinned and unpinned sections, preserving all unmanaged tabs.
+
+- Keep Firefox browsing information inside the companion: protocol 2 uses local
+  `ensure-tabs`/`sync-tabs` operations and structural-only inspection. Native
+  responses and diagnostics never carry live URLs or titles. The extension keeps
+  the `tabs` permission and declares data collection `none`. Update Layouter and
+  the companion together; existing persistent identities remain unchanged.
+
+- Add FirefoxWindow/FirefoxTab declarations in TOML and TSX, a companion extension
+  and native messaging bridge, ownership routing, session-identity recovery, and
+  additive tab creation. `--sync` preserves old URL state in unmanaged tabs while
+  recreating declared URLs and restoring pinning, order and activation. Window
+  identity includes executable/args. Companion actions require an invocation.
+  Extension signing and live browser/compositor validation remain release gates;
+  duplicate window identities fail safely as ambiguous.
+
 - Fix unreliable floating-window size and placement during client startup and
   `--sync` by retrying until geometry remains stable within the compositor timeout.
 - Validate optional workflow descriptions and expose TSX definition descriptions

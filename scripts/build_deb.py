@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build a relocatable Architecture: all Debian package from the full executable."""
 import gzip
+import json
 import os
 from pathlib import Path
 import shutil
@@ -26,6 +27,16 @@ with tempfile.TemporaryDirectory(prefix='layouter-deb-') as temporary:
     (stage / 'usr/bin').mkdir(parents=True)
     shutil.copyfile(binary, stage / 'usr/bin/layouter')
     (stage / 'usr/bin/layouter').chmod(0o755)
+    host = stage / 'usr/bin/layouter-firefox-host'
+    host.write_text('#!/bin/sh\nexec /usr/bin/layouter --firefox-host "$@"\n')
+    host.chmod(0o755)
+    manifests = stage / 'usr/lib/mozilla/native-messaging-hosts'
+    manifests.mkdir(parents=True)
+    (manifests / 'org.layouter.firefox.json').write_text(json.dumps({
+        'name': 'org.layouter.firefox', 'description': 'Layouter Firefox companion bridge',
+        'path': '/usr/bin/layouter-firefox-host', 'type': 'stdio',
+        'allowed_extensions': ['firefox@layouter.dev'],
+    }, indent=2) + '\n')
     docs = stage / 'usr/share/doc/layouter'
     docs.mkdir(parents=True)
     notices = [(root / 'LICENSE').read_text()]

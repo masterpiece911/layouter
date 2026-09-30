@@ -70,3 +70,19 @@ Follow the [smoke-test procedure](smoke-test.md) in both i3 and Sway sessions.
 Check application discovery, pane creation, focus, preservation of existing
 work, and explicit synchronization against the live desktop. Use these checks
 alongside the automated backend fixtures when changing desktop operations.
+
+## Firefox integration
+
+`make test-firefox` runs the companion against mocked WebExtension APIs using
+Node's built-in test runner. `make test` includes browser config, recovery,
+containment, non-destructive URL sync, bootstrap routing, title-probe and native
+bridge fixtures; the bridge tests need Unix sockets and loopback HTTP binding.
+Live Firefox-family and fork checks, and extension signing, are separate gates
+listed in [the smoke procedure](smoke-test.md#firefox-family-companion).
+
+Privacy regressions check every companion response for forbidden browsing fields,
+exercise navigation divergence and ambiguity locally, sanitize API-error and
+background-disconnect logging, and send real companion responses through a native
+host subprocess/private Unix socket. A sentinel live URL must never occur in the
+captured native traffic or logs. The manifest check enforces `required: ["none"]`
+while retaining `tabs`. The bridge fixture requires Python and local socket access.

@@ -7,3 +7,5 @@ recursive-include scripts *.py
 recursive-include docs *.md
 recursive-include examples *.toml *.tsx
 recursive-include tests *.py *.toml *.tsx
+
+recursive-include firefox-extension *.json *.js *.cjs *.md *.svg

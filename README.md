@@ -104,6 +104,11 @@ Use `layouter --sync morning garden` when you want to restore the declared arran
 - **Compose layouts with React.** Reuse components and choose layouts from
   arguments and connected displays. TSX compiles to the same desired state as
   TOML and uses the same reconciliation engine.
+- **Manage Firefox windows and declared tabs.** Use `FirefoxWindow`/`FirefoxTab`
+  or TOML `workspace.firefox` declarations with the optional companion. Recover
+  browser-restored windows and recreate missing declared tabs while preserving
+  user tabs. See [companion setup and compatibility](docs/firefox.md); the bundled
+  extension archive is currently unsigned.
 - **Keep a layout you arranged by hand.** Use `layouter --save-layout morning garden`
   to save a TOML workflow's current arrangement, or `layouter --capture` to
   draft a new workflow from your desktop.
@@ -142,6 +147,8 @@ or `--describe --json morning` to read structured workflow metadata. See the
   floating windows, kitty tabs and panes, capture, and CLI options.
 - [React workflows](docs/react-workflows.md): components, hooks, editor setup,
   and executable configuration behavior.
+- [Firefox companion](docs/firefox.md): installation, managed-tab badges,
+  privacy boundaries, and browser verification results.
 - [Integrations](docs/integrations.md): build launchers and argument forms using
   structured metadata and the CLI.
 - [Design](docs/design.md): identity, desired state, and reconciliation.

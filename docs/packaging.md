@@ -143,3 +143,18 @@ are built for review; no registry upload or GitHub release is automatic.
 References: [esbuild installation and portability](https://esbuild.github.io/getting-started/),
 [setuptools package data](https://setuptools.pypa.io/en/stable/userguide/datafiles.html),
 [Node TypeScript limitations](https://nodejs.org/api/typescript.html).
+
+## Optional Firefox companion
+
+The Python package includes the dependency-free native host; wheels expose
+`layouter-firefox-host`, and zipapps support the private `--firefox-host` entry.
+The Debian payload includes a host wrapper and a manifest restricted to
+`firefox@layouter.dev`. The source archive includes companion sources and tests.
+`make release` tests and packages `layouter-firefox-VERSION-unsigned.xpi`, with
+its checksum. Signing is a separate maintainer step requiring Mozilla credentials;
+the build never represents this unsigned archive as a signed distribution.
+See [setup and verification](firefox.md). Other workflows have no Firefox dependency.
+
+The Firefox companion archive includes `badges.js` and `icon.svg` for its passive
+managed-tab toolbar indicator. These assets must also be present in source
+packages; the indicator adds no host or content-script permissions.

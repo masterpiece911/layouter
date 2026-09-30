@@ -27,6 +27,8 @@ def script(name, *args):
 
 run('npm', 'ci', '--prefix', 'react')
 run('npm', 'test', '--prefix', 'react')
+run('node', '--test', 'firefox-extension/test/protocol.test.cjs')
+script('build_firefox_extension.py')
 script('build_react_runtime.py')
 run(sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', extra_env={'PYTHONPATH': 'src'})
 script('build_zipapp.py')
@@ -48,7 +50,8 @@ script('build_deb.py')
 script('build_editor_package.py')
 script('verify_release.py')
 names = ['layouter', 'layouter-core', f'layouter-{version}-py3-none-any.whl',
-         source.name, f'layouter_{version}_all.deb', f'layouter-react-{version}.tgz']
+         source.name, f'layouter_{version}_all.deb', f'layouter-react-{version}.tgz',
+         f'layouter-firefox-{version}-unsigned.xpi']
 lines = [f"{hashlib.sha256((root / 'dist' / name).read_bytes()).hexdigest()}  {name}\n" for name in names]
 (root / 'dist/SHA256SUMS').write_text(''.join(lines))
 print('Verified release artifacts and SHA256SUMS are in dist/; nothing has been published.')
