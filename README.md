@@ -107,8 +107,9 @@ Use `layouter --sync morning garden` when you want to restore the declared arran
 - **Manage Firefox windows and declared tabs.** Use `FirefoxWindow`/`FirefoxTab`
   or TOML `workspace.firefox` declarations with the optional companion. Recover
   browser-restored windows and recreate missing declared tabs while preserving
-  user tabs. See [companion setup and compatibility](docs/firefox.md); the bundled
-  extension archive is currently unsigned.
+  user tabs. See [companion setup and compatibility](docs/firefox.md). Local builds
+  produce an unsigned archive; tagged CI releases sign it when AMO credentials
+  are configured.
 - **Keep a layout you arranged by hand.** Use `layouter --save-layout morning garden`
   to save a TOML workflow's current arrangement, or `layouter --capture` to
   draft a new workflow from your desktop.

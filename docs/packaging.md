@@ -137,8 +137,10 @@ needed by these executions. Debian testing validates its payload and layout;
 it does not change the host package database.
 
 CI is configured to cover Node 22/24, Python 3.11–3.14, and full artifacts on Linux x64 and arm64.
-Live compositor smoke tests remain a separate desktop gate. Release artifacts
-are built for review; no registry upload or GitHub release is automatic.
+Live compositor smoke tests remain a separate desktop gate. Ordinary CI builds
+upload review artifacts. Pushing a matching `vVERSION` tag also signs the Firefox
+companion and publishes a GitHub release after all jobs pass; local `make release`
+never signs or publishes.
 
 References: [esbuild installation and portability](https://esbuild.github.io/getting-started/),
 [setuptools package data](https://setuptools.pypa.io/en/stable/userguide/datafiles.html),
@@ -151,10 +153,61 @@ The Python package includes the dependency-free native host; wheels expose
 The Debian payload includes a host wrapper and a manifest restricted to
 `firefox@layouter.dev`. The source archive includes companion sources and tests.
 `make release` tests and packages `layouter-firefox-VERSION-unsigned.xpi`, with
-its checksum. Signing is a separate maintainer step requiring Mozilla credentials;
-the build never represents this unsigned archive as a signed distribution.
+its checksum. Tagged CI releases additionally sign with Mozilla credentials;
+the local build never represents this unsigned archive as a signed distribution.
 See [setup and verification](firefox.md). Other workflows have no Firefox dependency.
 
 The Firefox companion archive includes `badges.js` and `icon.svg` for its passive
 managed-tab toolbar indicator. These assets must also be present in source
 packages; the indicator adds no host or content-script permissions.
+
+## Mozilla signing for tagged releases
+
+The tag-only `publish` job uses Mozilla's pinned `web-ext` CLI with
+`--channel=unlisted`: Mozilla signs the extension for distribution through GitHub
+Releases, without making a public AMO listing. An AMO listing is a separate
+distribution choice. See the [Mozilla signing reference](https://extensionworkshop.com/documentation/develop/web-ext-command-reference/#web-ext-sign).
+
+One-time account setup:
+
+1. Sign in to the [AMO API credentials page](https://addons.mozilla.org/en-US/developers/addon/api/key/)
+   with the account that will own the companion. Complete any requested developer
+   agreement, then generate API credentials. The JWT issuer is the API key; the
+   JWT secret is the API secret.
+2. In the GitHub repository, open **Settings → Secrets and variables → Actions →
+   New repository secret**. Save the issuer as `AMO_JWT_ISSUER` and the secret as
+   `AMO_JWT_SECRET`. Do not put either in a workflow file or paste them into chat.
+3. Keep the extension ID `firefox@layouter.dev`. If this ID already belongs to an
+   AMO submission, use credentials for an account permitted to update that add-on.
+   `web-ext` supports initial unlisted submissions; a manual upload is not required.
+
+For each release, update the project's version fields, including
+`firefox-extension/manifest.json`, commit, and push a matching `vVERSION` tag.
+Use a new extension version for a new AMO submission. CI checks that the tag,
+Python package version and extension version match before submitting anything.
+
+After the test/build matrix succeeds, signing extracts the checksum-verified
+unsigned XPI, submits that exact payload, and waits up to 15 minutes for approval.
+The downloaded XPI must contain signature metadata and the same extension files.
+Firefox performs cryptographic signature verification on installation. CI adds
+`layouter-firefox-VERSION.xpi` to `SHA256SUMS`, saves the combined artifacts as
+`layouter-signed-release`, and publishes them on the GitHub release. The unsigned
+archive remains separately named for development and auditing.
+
+Missing credentials, rejection, approval timeout, or an invalid returned artifact
+stop publication; CI never substitutes the unsigned XPI. PRs and branch builds
+do not run signing or receive these secrets. Keep version-tag creation restricted
+to release maintainers through repository rules.
+
+If Mozilla takes longer or requires review, inspect the submission in the AMO
+Developer Hub. Do not assume a failed CI job means the version was never uploaded;
+blindly rerunning signing can encounter an already-submitted version. If signing
+finished but GitHub publication failed, recover the existing XPI/checksums from
+the `layouter-signed-release` Actions artifact instead of resubmitting. Otherwise
+download the approved XPI from AMO and finish the release manually, updating its
+checksum. Do not overwrite an existing release tag to work around review.
+
+Self-distributed installation is through Firefox's **Install Add-on From File**
+using the signed XPI. This workflow does not add an extension update manifest or
+automatic updates; users install subsequent signed versions over the existing
+companion to preserve its metadata.

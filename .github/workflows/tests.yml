@@ -54,13 +54,20 @@ jobs:
           name: 'layouter-release-${{ matrix.runner }}'
           path: dist/
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [python, react, release]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/download-artifact@v4
         with:
           name: layouter-release-ubuntu-24.04
@@ -80,6 +87,23 @@ jobs:
           PY
           cd dist
           sha256sum --check SHA256SUMS
+      - name: Install pinned Mozilla signing tool
+        run: npm install --prefix "$RUNNER_TEMP/amo-tools" --no-audit --no-fund --ignore-scripts web-ext@10.5.0
+      - name: Sign Firefox companion for self-distribution
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/sign_firefox_extension.py --tag "$RELEASE_TAG" --web-ext "$RUNNER_TEMP/amo-tools/node_modules/.bin/web-ext"
+      - name: Preserve signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: layouter-signed-release
+          path: dist/
+          if-no-files-found: error
+      - name: Verify final checksums
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

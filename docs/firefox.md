@@ -42,7 +42,11 @@ python3 scripts/build_firefox_extension.py
 input, **not a production-installable signed release**. Production Firefox
 installation requires Mozilla signing with the maintainer's add-on account.
 No signing credentials or signed artifact are supplied by this repository's
-build. Submit the archive for signing without changing its extension ID; changing
+build. Tagged CI releases can produce `layouter-firefox-VERSION.xpi` through
+Mozilla signing after the maintainer configures the
+[AMO Actions secrets](packaging.md#mozilla-signing-for-tagged-releases). Install
+that signed XPI through **about:addons → gear → Install Add-on From File**.
+Submit the archive for signing without changing its extension ID; changing
 that ID loses access to existing extension session values. Follow the browser's
 extension distribution rules for compatible forks. Installation compatibility
 and the live smoke scenario must be verified before claiming support for a fork.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Sign the Firefox companion through Mozilla's unlisted channel on version-tag
+  releases, verify the returned payload and publish the signed XPI with release
+  checksums. Document AMO credential setup; ordinary CI and local builds remain
+  independent of signing credentials.
+
 - Avoid immediately synchronizing Firefox tabs a second time after creating a
   window. Loading pages and redirects no longer cause duplicate tabs during the
   same invocation that creates them.
