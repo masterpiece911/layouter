@@ -223,6 +223,17 @@ export default defineWorkflow({
         self.assertEqual(actual.by_id['tabs'].tabs[0].panes[0].env,
                          {'ROOT': 'root', 'MODE': 'prod', 'TERM_ENV': 'term', 'TAB_ENV': 'tab', 'PANE_ENV': 'pane'})
 
+    def test_firefox_toml_tsx_parity(self):
+        toml = ROOT / 'examples/firefox.toml'
+        tsx = ROOT / 'examples/firefox.tsx'
+        expected_config, expected_sources = load(self.project, str(toml))
+        actual_config, actual_sources = load(self.project, str(tsx))
+        expected = resolve(expected_config, self.project, sources=expected_sources)
+        actual = resolve(actual_config, self.project, sources=actual_sources)
+        self.assertEqual(replace(actual, sources=expected.sources), expected)
+        for node in expected.leaves:
+            self.assertEqual(expected.element_key(node), replace(actual, sources=expected.sources).element_key(node))
+
     def test_bind_once_before_render_and_import_once(self):
         marker = self.project / 'imports'
         code = PREFIX + f"""

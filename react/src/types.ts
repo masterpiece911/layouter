@@ -120,3 +120,21 @@ export interface PaneProps {
   location?: string;
   enabled?: boolean;
 }
+
+export type FirefoxWindowProps = Placement & {
+  name: string;
+  executable?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  enabled?: boolean;
+  children?: ReactNode;
+};
+
+export interface FirefoxTabProps {
+  name?: string;
+  url: string;
+  pinned?: boolean;
+  active?: boolean;
+  enabled?: boolean;
+}

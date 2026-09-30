@@ -194,3 +194,31 @@ See [Packaging and releases](packaging.md) for build instructions and the
 runtime packaging design. Releases bundle a portable WebAssembly
 transformer with React, so end users do not install npm dependencies. The Python
 core, normalizer, reconciler, and JSON evaluator boundary are unchanged.
+
+## Firefox-family browser primitives
+
+`FirefoxWindow` and `FirefoxTab` compile to the same `firefox`/`tab` declarations
+as TOML. See [browser semantics](workflows.md#firefox-family-windows-and-tabs)
+and [companion setup](firefox.md).
+
+```tsx
+import { Workflow, Workspace, FirefoxWindow, FirefoxTab } from '@layouter/react';
+
+<Workflow session="dev">
+  <Workspace number={3}>
+    <FirefoxWindow name="work" executable="zen-browser" args={["-P", "Work"]}>
+      <FirefoxTab name="jira" url="https://jira.example.com" pinned />
+      <FirefoxTab url="https://github.com/masterpiece911/layouter" active />
+    </FirefoxWindow>
+  </Workspace>
+</Workflow>
+```
+
+`FirefoxWindow` takes placement props, `name`, optional `executable`, `args`,
+`cwd`, `env`, `enabled`, and children. It is valid under `Workspace` or
+`Container`; floating windows belong directly under `Workspace`.
+`FirefoxTab` takes optional `name`, required `url`, optional `pinned`, `active`,
+and `enabled`, and belongs only under `FirefoxWindow`. Its local identity is
+`name ?? url`. There is no browser-tab workflow focus syntax or bootstrap-only
+URL list. Changing a window's executable or args intentionally changes its
+identity while preserving the old window.

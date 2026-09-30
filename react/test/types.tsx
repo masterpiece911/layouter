@@ -24,3 +24,12 @@ const floating = <Window name="w" command={['app']} floating position="center" w
 
 // @ts-expect-error description must be a string
 defineWorkflow({ description: 42, component() { return null; } });
+
+import { FirefoxWindow, FirefoxTab } from '../src/index.js';
+const browserWindow = <FirefoxWindow name="browser" args={["-P", "Work"]}>
+  <FirefoxTab url="https://example.com" pinned active />
+</FirefoxWindow>;
+// @ts-expect-error Browser tabs require a URL.
+const missingUrl = <FirefoxTab name="tab" />;
+// @ts-expect-error Firefox windows have no adoption API.
+const adoptedBrowser = <FirefoxWindow name="browser" adopt />;

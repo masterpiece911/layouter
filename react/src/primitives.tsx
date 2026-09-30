@@ -1,6 +1,8 @@
 import React from "react";
 import type {
   ContainerProps,
+  FirefoxWindowProps,
+  FirefoxTabProps,
   KittyProps,
   PaneProps,
   TabProps,
@@ -35,4 +37,12 @@ export function Tab(props: TabProps) {
 
 export function Pane(props: PaneProps) {
   return React.createElement("layouter-pane", props);
+}
+
+export function FirefoxWindow(props: FirefoxWindowProps) {
+  return React.createElement<FirefoxWindowProps>("layouter-firefox-window", props);
+}
+
+export function FirefoxTab(props: FirefoxTabProps) {
+  return React.createElement("layouter-firefox-tab", props);
 }

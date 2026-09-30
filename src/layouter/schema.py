@@ -14,7 +14,7 @@ from .model import digest
 
 ID = re.compile(r"[A-Za-z0-9_-]+\Z")
 WORKFLOW_FIELDS = {"session", "args", "cwd", "env", "focus", "description", "workspace", "sync_displays"}
-CHILDREN = {"window", "kitty", "container"}
+CHILDREN = {"window", "kitty", "firefox", "container"}
 IMPLICIT_TAB = "dev"
 
 
@@ -144,7 +144,13 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
                 nid = "container-" + digest(parent, str(index))
             else:
                 _, nid = element_name(item, iw)
-            if kind == "kitty":
+            if kind == "firefox":
+                allowed(item, {"name", "enabled", "executable", "args", "cwd", "env", "size",
+                               "order", "floating", "position", "x", "y", "width", "height", "tab"}, iw)
+                node = {"type": "firefox", "parent": parent,
+                        **{k: copy.deepcopy(v) for k, v in item.items() if k not in {"order", "tab"}},
+                        "firefox_tabs": copy.deepcopy(item.get("tab", []))}
+            elif kind == "kitty":
                 node = {"type": "kitty", "parent": parent, **kitty(item, iw)}
             else:
                 fields = {"name", "enabled", "command", "match", "cwd", "env", "adopt", "size", "order", "x", "y", "width", "height", "position"} if kind == "window" else {"name", "enabled", "layout", "size", "order", *CHILDREN}
@@ -168,7 +174,7 @@ def normalize_workflow(value: dict, where: str = "workflow") -> dict:
                   **{k: copy.deepcopy(v) for k, v in workspace.items() if k not in CHILDREN | {"floating"}}})
         visit_children(workspace, nid, "workspace")
         floating = mapping(workspace.get("floating", {}), "workspace.floating")
-        allowed(floating, {"window", "kitty"}, "workspace.floating")
+        allowed(floating, {"window", "kitty", "firefox"}, "workspace.floating")
         for kind, items in floating.items():
             for item in entries(items, "workspace.floating." + kind):
                 if "size" in item or "order" in item:

@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .errors import ConfigError
-from .model import Node, Pane, Tab, Workflow, digest, session_identity
+from .model import FirefoxTab, Node, Pane, Tab, Workflow, digest, session_identity
 from .schema import normalize_document
 from .sources import ReactSource, source_for, discover_paths
 
@@ -265,6 +265,13 @@ def command(value, where: str, *, required: bool = False) -> tuple[str, ...]:
     return values
 
 
+def arguments_array(value, where: str) -> tuple[str, ...]:
+    """Validate opaque launch arguments, preserving every string including empty values."""
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: expected a string array")
+    return tuple(text(arg, where, empty=True) for arg in value)
+
+
 def enabled_tables(data, where: str) -> dict[str, dict]:
     """Return enabled declarations after validating their IDs and enabled flags."""
     result = {}
@@ -333,6 +340,28 @@ def tabs(data: dict, project: Path, node_cwd: Path, node_env: dict, where: str) 
         if not panes:
             raise ConfigError(f"{tw}: a tab needs at least one enabled pane")
         result.append(Tab(tid, title, layout, ordered_panes(panes, tw)))
+    return tuple(result)
+
+
+def firefox_tabs(data, where: str) -> tuple[FirefoxTab, ...]:
+    """Keep literal local IDs, scoped to this browser window only."""
+    if not isinstance(data, list):
+        raise ConfigError(f"{where}: expected an array of tab tables")
+    result, seen = [], set()
+    for raw in data:
+        raw = table(raw, where)
+        keys(raw, {"name", "url", "enabled", "pinned", "active"}, where)
+        if not boolean(raw.get("enabled", True), where + ".enabled"):
+            continue
+        url = text(raw.get("url"), where + ".url")
+        tid = text(raw["name"], where + ".name") if "name" in raw else url
+        if tid in seen:
+            raise ConfigError(f"{where}: duplicate FirefoxTab identity {tid!r}")
+        seen.add(tid)
+        result.append(FirefoxTab(tid, url, boolean(raw.get("pinned", False), where + ".pinned"),
+                                 boolean(raw.get("active", False), where + ".active")))
+    if sum(tab.active for tab in result) > 1:
+        raise ConfigError(f"{where}: at most one enabled FirefoxTab may be active")
     return tuple(result)
 
 
@@ -407,6 +436,9 @@ def resolve(config: dict, project: Path, name: str = "default",
                 raise ConfigError(f"{nw}: containers require a layout")
         elif kind == "app":
             allowed |= {"parent", "command", "match", "cwd", "env", "adopt", "size", "floating", "x", "y", "width", "height", "position"}
+        elif kind == "firefox":
+            allowed |= {"name", "parent", "cwd", "env", "executable", "args", "firefox_tabs",
+                        "size", "floating", "x", "y", "width", "height", "position"}
         elif kind == "kitty":
             allowed |= {"name", "parent", "cwd", "env", "tabs", "executable", "config", "options", "session_file",
                         "class", "size", "floating", "x", "y", "width", "height", "position"}
@@ -464,7 +496,7 @@ def resolve(config: dict, project: Path, name: str = "default",
             if not ARG.fullmatch(key):
                 raise ConfigError(f"{nw}: invalid kitty option {key!r}")
             line(val, nw + ".options." + key)
-        executable = text(n.get("executable", "kitty"), nw + ".executable")
+        executable = text(n.get("executable", "firefox" if kind == "firefox" else "kitty"), nw + ".executable")
         if "/" in executable:
             executable = str(cwd(executable, project, nw + ".executable"))
         if kind == "workspace" and "ref" in n:
@@ -477,7 +509,7 @@ def resolve(config: dict, project: Path, name: str = "default",
                     node_name += ": " + line(n["name"], nw + ".name")
             else:
                 node_name = line(n.get("name"), nw + ".name")
-        elif kind == "kitty":
+        elif kind in {"kitty", "firefox"}:
             node_name = line(n.get("name", nid), nw + ".name")
         nodes.append(Node(
             id=nid, kind=kind, parent=parent, cwd=ncwd, env=nenv,
@@ -485,6 +517,8 @@ def resolve(config: dict, project: Path, name: str = "default",
             layout=layout, command=command(n.get("command", []), nw + ".command", required=kind == "app"),
             match=match, adopt=boolean(n.get("adopt", False), nw + ".adopt"),
             tabs=ntabs, executable=executable,
+            args=arguments_array(n.get("args", []), nw + ".args"),
+            firefox_tabs=firefox_tabs(n.get("firefox_tabs", []), nw + ".tab") if kind == "firefox" else (),
             config=cwd(n["config"], project, nw + ".config") if "config" in n else None,
             options=options, session_file=session_file,
             wm_class=line(n["class"], nw + ".class") if "class" in n else None,

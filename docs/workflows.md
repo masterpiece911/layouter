@@ -728,3 +728,74 @@ These helpers return JSON-compatible lists/dictionaries without the CLI version
 envelope. All accept `selected="path/to/workflow.toml"` and `force_global=True`
 (as mutually exclusive source selections). `list_workflows` accepts a `workflow`
 keyword to name an explicit file, matching the CLI. Errors raise `ConfigError`.
+
+## Firefox-family windows and tabs
+
+A `firefox` leaf can appear under a workspace or container, or under
+`workspace.floating`. It guarantees a logical browser window and its declared
+tabs. Install the [companion and native host](firefox.md) in the selected browser
+instance first. Existing non-Firefox workflows require no browser tooling.
+
+```toml
+[[workspace]]
+number = 3
+  [[workspace.firefox]]
+  name = "work"
+  executable = "zen-browser"
+  args = ["-P", "Work"]
+    [[workspace.firefox.tab]]
+    name = "jira"
+    url = "https://jira.example.com"
+    pinned = true
+    [[workspace.firefox.tab]]
+    url = "https://github.com/masterpiece911/layouter"
+    active = true
+```
+
+Window fields are `name` (required), `enabled`, `executable` (default `firefox`),
+`args` (string array, default empty), `cwd`, `env`, `size`, `floating`, `position`,
+`x`, `y`, `width`, `height`, and `tab`. Like other leaves, `order` can interleave
+TOML children. Geometry is valid only for floating windows, which must belong
+directly to a workspace. `command`, `match`, `adopt`, `private`, `profile`,
+`initial_tabs`, and `initial_urls` are not supported. Executable and arguments
+are opaque browser CLI inputs; no browser-brand or profile parsing occurs.
+
+Unlike generic windows, **executable and args participate in window identity**.
+Changing either describes a different logical window. The previous window and
+its tabs remain untouched. Session and declaration identity also participate.
+
+Tab fields are `url` (required, nonempty), `name` (optional, nonempty), `pinned`
+(default false), `active` (default false), and `enabled` (default true). A tab's
+local identity is its name, or its literal declared URL if unnamed. Identities
+must be unique among enabled siblings and are scoped to their parent window.
+At most one enabled tab per window may declare `active = true`. Tabs cannot be
+workflow focus targets; existing workspace/window focus semantics still apply.
+
+Normal invocation creates missing windows and tabs. It preserves existing URLs,
+pinning, activation and order. Moving a managed tab elsewhere makes it absent
+from its declared parent: the next invocation creates a replacement there and
+leaves the moved tab alone. Closing a tab does nothing until another invocation.
+An empty window declaration is valid; Firefox supplies its normal initial tab.
+
+`--sync` detaches identity from an existing managed tab whose URL differs, then
+creates a fresh declared tab. The old tab stays open, with its state and history.
+It also restores declared pinning, moves declared pinned tabs to the leftmost
+pinned positions and declared unpinned tabs to the leftmost unpinned positions, in their
+respective declaration order, then activates the declared active tab if any.
+Unmanaged tabs remain open. No mode navigates or closes an existing user tab.
+
+Browser session restoration can recover window and tab identities. A closed
+window is recreated fresh in its owning connected companion, with only declared
+tabs guaranteed. Layouter never reads sessionstore or recently-closed records.
+When a tab is duplicated, one copy retains its identity and the extra copy's
+Layouter metadata is cleared, leaving both tabs open. The previously tracked tab
+wins; without a prior observation, the lowest runtime tab ID wins. This passive
+metadata maintenance does not recreate or change browser contents. Duplicate
+window identities remain errors. See the [Firefox notes](firefox.md) for details.
+
+`--check` needs no companion. `--dry-run` only inspects connected companions;
+its plan uses `keep`, `recover`, `create`, and `sync`. It never routes, launches,
+probes, marks, or changes visible browser state. Passive identity metadata
+maintenance still applies. Capture does not infer Firefox
+primitives. Save-layout preserves authored tabs and may update compositor
+placement, without reading browser state.

@@ -70,3 +70,24 @@ test('friendly diagnostics for invalid host trees and component errors', () => {
     [root(h(() => { useArg('missing'); return null; })), /Unknown workflow argument/],
   ]) assert.throws(() => evaluateWorkflow(element, context), message);
 });
+
+test('Firefox primitives preserve containment, argv and mixed order', async () => {
+  const { FirefoxWindow, FirefoxTab } = await import('../dist/index.js');
+  const browser = h(FirefoxWindow, { name: 'browser', args: ['-P', 'Work'] },
+    h(FirefoxTab, { url: 'https://example.com', pinned: true }));
+  const result = evaluateWorkflow(root(window('first'), browser,
+    h(Kitty, { name: 'term' }, h(Pane, { name: 'shell' })),
+    h(Container, { name: 'group', layout: 'splitv' },
+      h(FirefoxWindow, { name: 'nested' })),
+    h(FirefoxWindow, { name: 'float', floating: true, width: 600 })), context);
+  const ws = result.workspace[0];
+  assert.deepEqual(ws.firefox, [{ name: 'browser', args: ['-P', 'Work'],
+    tab: [{ url: 'https://example.com', pinned: true }], order: 1 }]);
+  assert.equal(ws.window[0].order, 0);
+  assert.equal(ws.kitty[0].order, 2);
+  assert.equal(ws.container[0].order, 3);
+  assert.equal(ws.container[0].firefox[0].name, 'nested');
+  assert.deepEqual(ws.floating.firefox, [{ name: 'float', width: 600 }]);
+  assert.throws(() => evaluateWorkflow(root(h(FirefoxTab, { url: 'x' })), context), /cannot contain/);
+  assert.throws(() => evaluateWorkflow(root(h(FirefoxWindow, { name: 'b' }, h(Tab, { name: 't' }))), context), /cannot contain/);
+});

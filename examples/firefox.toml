@@ -1,0 +1,22 @@
+session = "dev"
+
+[[workspace]]
+number = 3
+  [[workspace.firefox]]
+  name = "docs"
+  executable = "firefox"
+  args = ["-P", "Work"]
+    [[workspace.firefox.tab]]
+    url = "https://developer.mozilla.org/"
+    pinned = true
+
+[[workspace]]
+number = 4
+  [[workspace.firefox]]
+  name = "project"
+  executable = "firefox"
+  args = ["-P", "Work"]
+    [[workspace.firefox.tab]]
+    name = "repo"
+    url = "https://github.com/masterpiece911/layouter"
+    active = true

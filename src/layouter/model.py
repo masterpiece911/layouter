@@ -47,8 +47,17 @@ class Tab:
 
 
 @dataclass(frozen=True)
+class FirefoxTab:
+    """A parent-scoped browser identity with creation and synchronization state."""
+    id: str
+    url: str
+    pinned: bool = False
+    active: bool = False
+
+
+@dataclass(frozen=True)
 class Node:
-    """A workspace, structural container, GUI application, or kitty OS window declaration."""
+    """A workspace, structural container, GUI application, kitty OS window, or Firefox window declaration."""
     id: str
     kind: str
     cwd: Path
@@ -61,6 +70,8 @@ class Node:
     adopt: bool = False
     tabs: tuple[Tab, ...] = ()
     executable: str = "kitty"
+    args: tuple[str, ...] = ()
+    firefox_tabs: tuple[FirefoxTab, ...] = ()
     config: Path | None = None
     options: dict[str, str] = field(default_factory=dict)
     session_file: Path | None = None
@@ -101,6 +112,17 @@ class Workflow:
         """Encode an element identity as a namespaced i3/Sway mark."""
         return "layouter_" + self.element_id(node)
 
+    def element_key(self, node: Node) -> str:
+        """Firefox launch specifications route ownership; other identities stay unchanged."""
+        if node.kind == "firefox":
+            return digest("firefox-v1", self.session_id, node.id, node.executable,
+                          json.dumps(node.args, ensure_ascii=False, separators=(",", ":")))
+        return self.element_id(node.id)
+
+    def mark_for(self, node: Node) -> str:
+        """Use the same node-aware identity for compositor and application ownership."""
+        return "layouter_" + self.element_key(node)
+
     def pane_key(self, node: str, tab: str, pane: str) -> str:
         """Identify a declared pane independently of its current live tab or title."""
         return digest(self.session_id, node, tab, pane)
@@ -116,5 +138,5 @@ class Workflow:
 
     @property
     def leaves(self) -> tuple[Node, ...]:
-        """Return launchable applications and kitty windows in declaration order."""
-        return tuple(n for n in self.nodes if n.kind in {"app", "kitty"})
+        """Return launchable application, kitty and Firefox windows in declaration order."""
+        return tuple(n for n in self.nodes if n.kind in {"app", "kitty", "firefox"})
