@@ -38,7 +38,7 @@ For development, load `firefox-extension/manifest.json` through the browser's
 python3 scripts/build_firefox_extension.py
 ```
 
-`dist/layouter-firefox-1.0.0-unsigned.xpi` is an unsigned development/signing
+`dist/layouter-firefox-VERSION-unsigned.xpi` is an unsigned development/signing
 input, **not a production-installable signed release**. Production Firefox
 installation requires Mozilla signing with the maintainer's add-on account.
 No signing credentials or signed artifact are supplied by this repository's

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 — 2026-09-30
 
 - Sign the Firefox companion through Mozilla's unlisted channel on version-tag
   releases, verify the returned payload and publish the signed XPI with release
@@ -39,8 +39,7 @@
   additive tab creation. `--sync` preserves old URL state in unmanaged tabs while
   recreating declared URLs and restoring pinning, order and activation. Window
   identity includes executable/args. Companion actions require an invocation.
-  Extension signing and live browser/compositor validation remain release gates;
-  duplicate window identities fail safely as ambiguous.
+  Duplicate window identities fail safely as ambiguous.
 
 - Fix unreliable floating-window size and placement during client startup and
   `--sync` by retrying until geometry remains stable within the compositor timeout.
@@ -49,6 +48,12 @@
 - Add `--list-args`, `--describe`, and versioned JSON output for workflow
   discovery and metadata, plus matching helpers in `layouter.metadata`.
   Selected TSX argument inspection imports metadata without rendering layouts.
+
+Firefox companion verification: Firefox and Firefox Developer Edition passed
+live Sway checks. i3, native Wayland Firefox windows and permanent signed
+installation remain unverified. Zen 1.22.3b did not pass the multi-window
+scenario; see `docs/firefox.md` for details. Install the signed companion XPI
+alongside Layouter 1.1.0; unsigned XPIs are development/signing inputs.
 
 ## 1.0.0 — 2026-09-24
 

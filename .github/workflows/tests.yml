@@ -82,7 +82,9 @@ jobs:
           import tomllib
           version = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']
           assert os.environ['RELEASE_TAG'] == f'v{version}', 'Tag must match the package version'
-          notes = pathlib.Path('CHANGELOG.md').read_text().split('\n', 2)[2]
+          changelog = pathlib.Path('CHANGELOG.md').read_text()
+          section = next(part for part in changelog.split('\n## ') if part.startswith(f'{version} — '))
+          notes = '## ' + section.strip() + '\n'
           pathlib.Path('release-notes.md').write_text(notes)
           PY
           cd dist
