@@ -43,6 +43,17 @@ extra = { position = 2, required = false }
             code = main(['-C', str(self.project), *args])
         return code, out.getvalue(), err.getvalue()
 
+    def test_firefox_metadata_and_check_need_no_companion(self):
+        (self.local / 'browser.toml').write_text('description = "Browser workspace"\n[[workspace]]\nnumber = 3\n[[workspace.firefox]]\nname = "work"\nargs = ["-P", "Work"]\n[[workspace.firefox.tab]]\nurl = "https://example.com"\n')
+        with patch('layouter.firefox.FirefoxRegistry.companions', side_effect=AssertionError('no browser access')):
+            record = describe_workflow(self.project, 'browser')
+            self.assertEqual(record['args'], [])
+            self.assertEqual(record['description'], 'Browser workspace')
+            code, out, err = self.cli('--describe', '--json', 'browser')
+            self.assertEqual((code, err), (0, ''))
+            self.assertEqual(json.loads(out)['schema_version'], 1)
+            self.assertEqual(self.cli('--check', 'browser')[0], 0)
+
     def test_order_and_effective_defaults_without_binding(self):
         self.assertEqual(list_args(self.project), [
             {'name': 'service', 'position': 0, 'required': True, 'help': 'Service to launch'},

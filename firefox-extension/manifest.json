@@ -1,0 +1,37 @@
+{
+  "manifest_version": 2,
+  "name": "Layouter Firefox Companion",
+  "version": "1.0.0",
+  "description": "Expose persistent window and tab identities to explicit Layouter invocations.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "firefox@layouter.dev",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
+  "permissions": [
+    "sessions",
+    "nativeMessaging",
+    "storage",
+    "tabs"
+  ],
+  "incognito": "not_allowed",
+  "background": {
+    "scripts": [
+      "protocol.js",
+      "badges.js",
+      "background.js"
+    ],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_icon": "icon.svg",
+    "default_title": "Layouter — unmanaged tab",
+    "default_area": "navbar"
+  }
+}

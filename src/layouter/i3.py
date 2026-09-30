@@ -414,6 +414,28 @@ class Compositor(AbstractContextManager):
             f"Timed out discovering {description}: no new matching window appeared. "
             "Layouter did not terminate the launched process; check its matcher and runtime log before retrying.")
 
+    def wait_for_title_token(self, events: Events, token: str, description: str) -> dict:
+        """Correlate a temporary application probe with exactly one fresh native window."""
+        deadline = time.monotonic() + self.timeout
+        while True:
+            found = unique([n for n in walk(self.tree()) if is_window(n)
+                            and token in (n.get("name") or "")], description + " title probe")
+            if found is not None:
+                return found
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise WindowDiscoveryTimeout(f"Timed out correlating {description} title probe; "
+                                             "check that the browser exposes titlePreface to the compositor")
+            try:
+                events.next(remaining)
+            except TimeoutError:
+                # Verify the final fresh snapshot, including timeout-boundary events.
+                deadline = min(deadline, time.monotonic())
+
+    def claim_existing(self, workflow: Workflow, leaf: Node, live: dict):
+        """Recover identity without moving or making an existing window mutable."""
+        self.mark(live, workflow.mark_for(leaf))
+
     def _sets(self):
         # Test doubles constructed without __init__ also use these methods.
         if not hasattr(self, "mutable_ids"):
@@ -436,7 +458,7 @@ class Compositor(AbstractContextManager):
     def resolve_node(self, workflow: Workflow, node: Node, tree: dict) -> dict | None:
         """Resolve workspace destinations by number/name and other elements by mark."""
         if node.kind != "workspace":
-            return marked(tree, workflow.mark(node.id))
+            return marked(tree, workflow.mark_for(node))
         number = self._workspace_number(node.name)
         return unique([item for item in walk(tree) if item.get("type") == "workspace"
                        and (item.get("num") == number if number is not None
@@ -558,7 +580,7 @@ class Compositor(AbstractContextManager):
         if parent.kind == "workspace":
             self.command(f"[con_id={con_id}] move container to workspace {quote(destination['name'])}")
         else:
-            self.command(f"[con_id={con_id}] move container to mark {quote(workflow.mark(parent.id))}")
+            self.command(f"[con_id={con_id}] move container to mark {quote(workflow.mark_for(parent))}")
         if not descendant(self.tree(), con_id, int(destination["id"])):
             raise BackendError(f"Could not attach {node.id} to {parent.id}")
 
@@ -567,7 +589,7 @@ class Compositor(AbstractContextManager):
         if created["id"] in baseline:
             raise BackendError("Refusing to place a preexisting window")
         self._sets()
-        self.mark(created, workflow.mark(leaf.id))
+        self.mark(created, workflow.mark_for(leaf))
         self.mutable_ids.add(int(created["id"]))
         if leaf.floating:
             self.command(f"[con_id={int(created['id'])}] floating enable")
@@ -604,9 +626,9 @@ class Compositor(AbstractContextManager):
 
     def _root(self, workflow: Workflow, node: Node, tree: dict) -> tuple[dict, str] | None:
         """Resolve a declared subtree to its live root, tolerating flattened singleton containers."""
-        live = marked(tree, workflow.mark(node.id))
+        live = marked(tree, workflow.mark_for(node))
         if live is not None:
-            return live, workflow.mark(node.id)
+            return live, workflow.mark_for(node)
         if node.kind != "container":
             return None
         children = self._children(workflow, node.id)
@@ -618,7 +640,7 @@ class Compositor(AbstractContextManager):
         """Build a missing multi-child container only from roots eligible for mutation."""
         self._sets()
         tree = self.tree()
-        if marked(tree, workflow.mark(container.id)) is not None:
+        if marked(tree, workflow.mark_for(container)) is not None:
             return False
         roots = [self._root(workflow, child, tree)
                  for child in self._children(workflow, container.id)]
@@ -642,15 +664,15 @@ class Compositor(AbstractContextManager):
         # A mark on a real window inserts beside that window, but a mark on a
         # group inserts *inside* it. Target the new wrapper explicitly so a
         # first child that is itself a group keeps its own children and layout.
-        self.mark(parent, workflow.mark(container.id))
-        parent = self.find(workflow.mark(container.id)) or parent
+        self.mark(parent, workflow.mark_for(container))
+        parent = self.find(workflow.mark_for(container)) or parent
         parent_id = int(parent["id"])
         self.mutable_ids.add(parent_id)
         previous = ids[0]
         for con_id in ids[1:]:
             if not descendant(self.tree(), con_id, parent_id):
                 self.command(f"[con_id={previous}] focus; "
-                             f"[con_id={con_id}] move container to mark {quote(workflow.mark(container.id))}")
+                             f"[con_id={con_id}] move container to mark {quote(workflow.mark_for(container))}")
             previous = con_id
         parent = find_id(self.tree(), parent_id)
         if parent is None or [child["id"] for child in parent.get("nodes", [])] != ids:
@@ -713,7 +735,7 @@ class Compositor(AbstractContextManager):
         for leaf in workflow.leaves:
             if leaf.floating:
                 continue
-            live = marked(tree, workflow.mark(leaf.id))
+            live = marked(tree, workflow.mark_for(leaf))
             if live is None or not is_window(live):
                 return False
         for parent in self._structural_parents(workflow):
@@ -793,7 +815,7 @@ class Compositor(AbstractContextManager):
         if all(getattr(leaf, key) is None for key in ("position", "x", "y", "width", "height")):
             return
         tree = self.tree()
-        live = marked(tree, workflow.mark(leaf.id))
+        live = marked(tree, workflow.mark_for(leaf))
         if live is None:
             raise BackendError(f"Cannot size missing compositor element {leaf.id}")
         con_id = int(live["id"])
@@ -841,7 +863,7 @@ class Compositor(AbstractContextManager):
             time.sleep(min(0.05, max(0, deadline - time.monotonic())))
 
     def _floating_matches(self, workflow: Workflow, leaf: Node, tree: dict) -> bool:
-        live = marked(tree, workflow.mark(leaf.id))
+        live = marked(tree, workflow.mark_for(leaf))
         if live is None or not is_window(live):
             return False
         path = path_to(tree, int(live["id"]))
@@ -890,7 +912,7 @@ class Compositor(AbstractContextManager):
             for leaf in workflow.leaves:
                 if leaf.floating:
                     continue
-                live = marked(tree, workflow.mark(leaf.id))
+                live = marked(tree, workflow.mark_for(leaf))
                 if live is None or not is_window(live):
                     raise BackendError(f"Cannot synchronize missing compositor element {leaf.id}")
                 leaves.append((leaf, int(live["id"])))
@@ -904,9 +926,9 @@ class Compositor(AbstractContextManager):
                     self.command(f"[con_id={con_id}] floating disable")
                     self.command(f"[con_id={con_id}] move container to workspace {quote(staging)}")
                 for container in (node for node in workflow.nodes if node.kind == "container"):
-                    live = marked(self.tree(), workflow.mark(container.id))
+                    live = marked(self.tree(), workflow.mark_for(container))
                     if live is not None:
-                        self.command(f"[con_id={int(live['id'])}] unmark {quote(workflow.mark(container.id))}")
+                        self.command(f"[con_id={int(live['id'])}] unmark {quote(workflow.mark_for(container))}")
                 self.mutable_ids = {con_id for _, con_id in leaves}
                 self.safe_workspaces = set()
                 for workspace in self._managed_workspaces(workflow):
@@ -931,7 +953,7 @@ class Compositor(AbstractContextManager):
         for leaf in workflow.leaves:
             if not leaf.floating or self._floating_matches(workflow, leaf, self.tree()):
                 continue
-            live = marked(self.tree(), workflow.mark(leaf.id))
+            live = marked(self.tree(), workflow.mark_for(leaf))
             if live is None or not is_window(live):
                 raise BackendError(f"Cannot synchronize missing compositor element {leaf.id}")
             self.command(f"[con_id={int(live['id'])}] floating enable")
@@ -954,6 +976,6 @@ class Compositor(AbstractContextManager):
         tree = self.tree()
         return [container for container in containers
                 if len(self._children(workflow, container.id)) > 1
-                and marked(tree, workflow.mark(container.id)) is None
+                and marked(tree, workflow.mark_for(container)) is None
                 and all(self._root(workflow, child, tree) is not None
                         for child in self._children(workflow, container.id))]

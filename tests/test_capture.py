@@ -40,6 +40,20 @@ class CaptureTests(unittest.TestCase):
     def resolve(self, document):
         return resolve(normalize_document(document), self.project)
 
+    def test_firefox_save_preserves_authored_tab_state_without_browser_inspection(self):
+        declaration = {"name": "browser", "args": ["-P", "Work"], "tab": [
+            {"name": "jira", "url": "https://jira", "pinned": True, "active": True}]}
+        document = {"workspace": [{"name": "dev", "firefox": [declaration]}]}
+        workflow = self.resolve(document)
+        live = window(10, marks=[workflow.mark_for(workflow.by_id["browser"])])
+        with patch("layouter.firefox.FirefoxRegistry.companions", side_effect=AssertionError("browser inspection")):
+            saved, _ = save_layout(document, workflow, desktop([live]), self.compositor, self.runtime)
+        actual = saved["workspace"][0]["firefox"][0]
+        self.assertEqual(actual["tab"], declaration["tab"])
+        self.assertEqual(actual["args"], declaration["args"])
+        self.assertEqual(self.resolve(tomllib.loads(dumps(saved))).leaves[0].firefox_tabs,
+                         workflow.leaves[0].firefox_tabs)
+
     def test_save_retains_floating_declarations_even_when_manually_tiled(self):
         document = {"workspace": [{"name": "dev", "floating": {"window": [
             {"name": "tools", "command": ["tools"], "x": 100, "y": 200, "width": 640, "height": 480}]}}]}

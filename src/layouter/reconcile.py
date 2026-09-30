@@ -13,6 +13,7 @@ from pathlib import Path
 from .errors import AmbiguousState, BackendError, WindowDiscoveryTimeout
 from .i3 import is_window, marked, walk
 from .kitty import Kitty
+from .firefox import FirefoxWindowBackend
 from .model import Node, Workflow
 from .runtime import Runtime
 
@@ -44,9 +45,11 @@ def check_executable(command: tuple[str, ...] | list[str], cwd: Path, env: dict)
 class Reconciler:
     """Coordinate backend operations while preserving existing processes and unmanaged elements."""
     def __init__(self, workflow: Workflow, i3, runtime: Runtime,
-                 kitty_factory=Kitty, emit=None):
+                 kitty_factory=Kitty, emit=None, firefox_factory=FirefoxWindowBackend):
         self.workflow, self.i3, self.runtime = workflow, i3, runtime
         self.kitties = {n.id: kitty_factory(workflow, n, runtime) for n in workflow.leaves if n.kind == "kitty"}
+        self.firefoxes = {n.id: firefox_factory(workflow, n, runtime)
+                          for n in workflow.leaves if n.kind == "firefox"}
         self.emit = emit or (lambda action: None)
         self.actions: list[Action] = []
 
@@ -58,7 +61,7 @@ class Reconciler:
 
     def existing_app(self, node: Node):
         """Find an application by mark and reject marks attached to structural containers."""
-        live = marked(self.i3.tree(), self.workflow.mark(node.id))
+        live = marked(self.i3.tree(), self.workflow.mark_for(node))
         if live and not is_window(live):
             raise BackendError(f"{node.id}: application identity belongs to a windowless container")
         return live
@@ -84,6 +87,8 @@ class Reconciler:
                         raise AmbiguousState("Two app declarations would adopt the same window")
                     claimed.add(adopt["id"])
                 result.append(Action("keep" if live else "adopt" if adopt else "create", node.id, "app"))
+            elif node.kind == "firefox":
+                result.extend(Action(*action) for action in self.firefoxes[node.id].plan(self.i3.tree(), sync))
             else:
                 state = snapshots[node.id]
                 result.append(Action("keep" if state.exists else "create", node.id, "kitty OS window"))
@@ -109,7 +114,8 @@ class Reconciler:
         """Validate commands and referenced files only for elements the plan would create."""
         missing = {a.target for a in plan if a.kind == "create"}
         for node in self.workflow.leaves:
-            if node.id in missing:
+            if node.id in missing and not (node.kind == "firefox" and
+                    self.firefoxes[node.id].inspect(self.i3.tree()).owner):
                 argv = node.command if node.kind == "app" else (node.executable,)
                 check_executable(argv, node.cwd, node.env)
                 for path in (node.config, node.session_file):
@@ -129,7 +135,7 @@ class Reconciler:
         if node.adopt:
             candidate = self.i3.adoptable(node.match)
             if candidate:
-                self.i3.mark(candidate, w.mark(node.id))
+                self.i3.mark(candidate, w.mark_for(node))
                 self.record("adopt", node.id, "identity added; placement preserved")
                 return
         self.i3.prepare_launch(w, node)
@@ -164,10 +170,10 @@ class Reconciler:
         if state.exists:
             self.record("keep", node.id, "kitty OS window")
             # Recover an interrupted launch using the deterministic X11 class.
-            if not marked(self.i3.tree(), w.mark(node.id)):
+            if not marked(self.i3.tree(), w.mark_for(node)):
                 candidates = backend.i3_windows(self.i3.tree())
                 if len(candidates) == 1:
-                    self.i3.mark(candidates[0], w.mark(node.id))
+                    self.i3.mark(candidates[0], w.mark_for(node))
         else:
             self.i3.prepare_launch(w, node)
             state = backend.start(self.i3, state)
@@ -187,6 +193,19 @@ class Reconciler:
                 else:
                     backend.create_pane(tab, pane, state)
                     self.record("create", target, "pane")
+
+    def firefox_window(self, node: Node, *, sync: bool = False):
+        """Recover or create a browser window, then reconcile declared child identities."""
+        backend = self.firefoxes[node.id]
+        action = backend.ensure(self.i3)
+        self.record(action, node.id, "Firefox window")
+        # Creation already materializes every declaration with its desired tab
+        # state. An immediate sync could replace those same fresh tabs while
+        # their pages are loading or redirecting.
+        if action != "create":
+            backend.reconcile_tabs(self.i3, sync=sync)
+            if sync:
+                self.record("sync", node.id, "declared Firefox tabs")
 
     def focus(self):
         """Resolve the configured focus target through the appropriate backend."""
@@ -215,7 +234,12 @@ class Reconciler:
         succeeded = False
         try:
             for node in self.workflow.leaves:
-                self.app(node) if node.kind == "app" else self.kitty(node)
+                if node.kind == "firefox":
+                    self.firefox_window(node, sync=sync)
+                elif node.kind == "app":
+                    self.app(node)
+                else:
+                    self.kitty(node)
             if sync:
                 for key, backend in self.kitties.items():
                     state = backend.inspect(self.i3.tree())

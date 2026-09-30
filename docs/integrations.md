@@ -191,3 +191,9 @@ its CLI from other runtimes.
 
 See the [workflow reference](workflows.md#metadata-for-launchers-and-integrations)
 for the API contract and [React workflows](react-workflows.md) for authoring.
+
+Firefox declarations use the same discovery, inspection and launch flow. A
+launcher does not need to connect to the browser companion or parse browser
+declarations. `--check` still makes no desktop/companion connection; an actual
+launch requires the separately installed [Firefox companion](firefox.md).
+The metadata `schema_version: 1` envelope is unchanged.

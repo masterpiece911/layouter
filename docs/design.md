@@ -18,6 +18,18 @@ Correction requires explicit intent. `--sync` restores declared arrangements
 of managed elements, and `--sync-displays` reapplies workspace display
 preferences. Neither mode prunes applications or restarts their processes.
 
+### No autonomous reconciliation
+
+Companion software may persist identity and expose application state, but
+user-visible mutation occurs only during an explicit Layouter invocation.
+Companions do not recreate, move, pin, activate or restore browser state between
+invocations. They may maintain Layouter metadata: when Firefox copies a managed
+tab identity during duplication, the companion retains one tracked copy and clears
+only the extra identity metadata, leaving both tabs unchanged. Passive toolbar
+indicators may reflect that metadata; they never alter browser contents or
+arrangement. Firefox owns
+normal session restoration and history.
+
 ### Discover reality; do not maintain a second desktop
 
 The compositor tree, Layouter marks, and kitty remote-control state are the
@@ -34,6 +46,12 @@ changing a layout does not create a second window. Explicit names express
 continuity across edits. Presentation fields provide identity only where the
 configuration deliberately uses them as a shorthand, such as a pane's title
 when its name is omitted.
+
+Firefox windows deliberately include executable and argv in their structured
+identity hash: launch routing determines their browser instance. Changing either
+creates a different logical element while preserving the old one. Tab identities
+are literal names or creation URLs, scoped to their parent window. Browser session
+values and compositor marks use the same node-aware window key.
 
 ### One workflow, one meaning
 
@@ -159,6 +177,13 @@ normalizes readable declarations; `config.py` binds arguments, interpolates,
 and validates; `model.py` holds desired-state records and identity rules.
 The React renderer and compiler live under `react/`, with the reconciler host
 adapter isolated from the public workflow API.
+
+`firefox.py` implements invocation-driven browser reconciliation; `firefox_host.py`
+is only native messaging transport. The companion exposes persistent identities
+without autonomous reconciliation. Browser-derived browsing data never crosses
+the Firefox companion boundary: URL comparison and all tab synchronization execute
+inside the extension. Python sends declarations and receives only structural
+integration metadata, never live URLs, titles or navigation-derived comparisons.
 
 `i3.py` and `kitty.py` implement desktop protocols and backend operations.
 `reconcile.py` coordinates creation and explicit synchronization. `runtime.py`

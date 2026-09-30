@@ -58,6 +58,12 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """Resolve the project and workflow, dispatch the requested mode, and return an exit code."""
+    # Native browsers append their manifest/extension arguments to the host command.
+    # Handle this entry before CLI parsing; it does not evaluate workflows or connect to a desktop.
+    actual = sys.argv[1:] if argv is None else argv
+    if actual and actual[0] == "--firefox-host":
+        from .firefox_host import main as host_main
+        return host_main()
     p = parser()
     args = p.parse_args(argv)
     try:

@@ -30,6 +30,16 @@ checks, and `docs/packaging.md` for distribution details.
 
 ## Behavioral invariants
 
+- **No autonomous reconciliation.** Companion software may persist identity and expose
+  application state, but user-visible mutation occurs only during an explicit
+  Layouter invocation. Clearing copied tab identity metadata after duplication is
+  passive metadata maintenance; both tabs and their browser state remain intact.
+  Passive toolbar indicators may reflect that metadata without reconciling browser state.
+
+- **Browser-derived browsing data never crosses the Firefox companion boundary.**
+  Keep tab URL comparison and browser-sensitive synchronization inside the extension.
+  Python sends declarations and receives only structural integration metadata.
+
 - **Create, don't correct; preserve, don't prune.** Ordinary reconciliation creates
   missing elements and preserves existing processes and arrangements. Removing a
   declaration must not close anything. Respect declared focus and `--no-focus`.

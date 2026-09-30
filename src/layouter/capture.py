@@ -258,7 +258,7 @@ def raw_index(document):
                 if kind == "container":
                     children(item, nid, where)
     for item in document.get("workspace", []):
-        nid = workspace_id(item["name"])
+        nid = workspace_id(item.get("name", str(item.get("number"))))
         result[nid], kinds[nid] = item, "workspace"
         children(item, nid, "workspace")
         children(item.get("floating", {}), nid, "workspace.floating")
@@ -276,10 +276,10 @@ def save_layout(document, workflow, tree, compositor, runtime):
     for node in workflow.nodes:
         live = compositor.resolve_node(workflow, node, tree)
         if live is None:
-            if node.kind in {"app", "kitty"}:
+            if node.kind in {"app", "kitty", "firefox"}:
                 warnings.append(f"{node.id}: absent; kept its declaration and placement.")
             continue
-        if node.kind in {"app", "kitty"}:
+        if node.kind in {"app", "kitty", "firefox"}:
             matched_leaves += 1
         if node.floating:
             warnings.append(f"{node.id}: kept its floating declaration; saving floating placement is unsupported.")
@@ -303,7 +303,7 @@ def save_layout(document, workflow, tree, compositor, runtime):
         )
 
     # Only reconstruct paths that lead to a known, live application.
-    needed = {a["id"] for live_id, node in live_nodes.items() if node.kind in {"app", "kitty"}
+    needed = {a["id"] for live_id, node in live_nodes.items() if node.kind in {"app", "kitty", "firefox"}
               for a in path_to(tree, live_id)}
     needed.update(live_id for live_id, node in live_nodes.items() if node.kind == "workspace")
     for live in walk(tree):
@@ -317,7 +317,7 @@ def save_layout(document, workflow, tree, compositor, runtime):
                 continue
             if live.get("type") == "workspace":
                 item = {"name": literal(live["name"])}
-                nid = workspace_id(item["name"])
+                nid = workspace_id(item.get("name", str(item.get("number"))))
                 if nid in raw:
                     raise ConfigError(f"Captured workspace name collides with an existing declaration: {live['name']}")
                 document.setdefault("workspace", []).append(item)
